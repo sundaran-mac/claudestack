@@ -1,0 +1,5 @@
+sessions/
+*.lock
+*.tmp.*
+*.bak
+.DS_Store
