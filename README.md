@@ -54,7 +54,7 @@ ClaudeStack.app (one floating box) <── reads every 0.5 s
 **1. Get the code into `~/.claude/stack`.** The hook and the app expect this exact folder.
 
 ```sh
-git clone https://github.com/sundaran-mac/claudestack-.git ~/.claude/stack
+git clone https://github.com/sundaran-mac/claudestack.git ~/.claude/stack
 chmod +x ~/.claude/stack/stack-hook.sh ~/.claude/stack/build.sh
 ```
 
