@@ -57,12 +57,12 @@ if [ "$(jq -r '.movedWhileReading == 0 and .jumpButton and .gapAtEnd < 4' <<<"$s
 
 # Day coach: a simulated Wednesday (busy all day, a short pause at 11:40, lunch away) and a Saturday.
 sim=$("$BIN" --coach-sim)
+# After the rest, water starts again too, so the next water is an hour of work later.
 expect="10:30 water
 11:30 rest
-11:46 water
-12:47 water
+12:32 water
 13:00 lunch"
-if [ "$(head -5 <<<"$sim")" = "$expect" ]; then echo "ok   coach: water, rest, cooldown and lunch at the right times"; else echo "FAIL coach morning:"; head -5 <<<"$sim"; fail=1; fi
+if [ "$(head -4 <<<"$sim")" = "$expect" ]; then echo "ok   coach: water, rest, water reset by the rest, and lunch at the right times"; else echo "FAIL coach morning:"; head -4 <<<"$sim"; fail=1; fi
 for want in "18:00 windDown" "18:30 dayDone" "18:45 overtime" "19:00 overtime" "saturday phase=off reminders=false"; do
   if grep -qx "$want" <<<"$sim"; then echo "ok   coach: $want"; else echo "FAIL coach: $want missing"; fail=1; fi
 done

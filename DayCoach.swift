@@ -196,8 +196,9 @@ final class DayCoach: ObservableObject {
         guard let r = reminder else { return }
         switch r {
         case .water: waterAt = workSecs; bump("water")
-        case .rest: restAt = workSecs; bump("breaks")
-        case .lunch: setFlag("lunchSeen"); restAt = workSecs
+        // A rest or lunch includes a drink of water, so water starts again too. The water count stays.
+        case .rest: restAt = workSecs; waterAt = workSecs; bump("breaks")
+        case .lunch: setFlag("lunchSeen"); restAt = workSecs; waterAt = workSecs
         case .windDown: setFlag("windDownSeen")
         case .dayDone: setFlag("dayDoneSeen")
         case .overtime: bump("overtimeSeen")
