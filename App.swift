@@ -46,7 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let view = StackView(store: store, prefs: prefs, reader: reader, web: web, focuser: focuser,
                              onDrag: { [weak self] v in self?.drag(v) },
                              onResize: { [weak self] e, active in self?.resize(e, active) },
-                             onResetPosition: { [weak self] in self?.resetPosition() })
+                             onResetPosition: { [weak self] in self?.resetPosition() },
+                             onZoom: { [weak self] in self?.zoom() })
         hosting = NSHostingView(rootView: view)
         panel.contentView = hosting
 
@@ -134,6 +135,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         f.origin.y = st.frame.maxY - f.height
         f.origin.x = (edge == .left || edge == .bottomLeft) ? st.frame.maxX - f.width : st.frame.minX
         panel.setFrame(f, display: true)
+    }
+
+    /// Green button: fill the screen the window is on. Again: back to the old size and place.
+    func zoom() {
+        let d = UserDefaults.standard
+        let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: panel.frame.midX, y: panel.frame.midY)) } ?? NSScreen.main
+        guard let full = screen?.visibleFrame else { return }
+        if let a = d.array(forKey: "zoomRestore") as? [Double], a.count == 4, panel.frame == full {
+            let r = NSRect(x: a[0], y: a[1], width: a[2], height: a[3])
+            d.removeObject(forKey: "zoomRestore")
+            save(r)
+        } else {
+            let f = panel.frame
+            d.set([f.minX, f.minY, f.width, f.height], forKey: "zoomRestore")
+            save(full)
+        }
+        layout()
+    }
+
+    /// Stores a reader frame the way layout() reads it: top-left corner plus size.
+    func save(_ f: NSRect) {
+        UserDefaults.standard.set([f.minX, f.maxY], forKey: "topLeft")
+        UserDefaults.standard.set([f.width, f.height], forKey: "readerSize")
     }
 
     func savedReaderSize() -> NSSize {

@@ -126,6 +126,7 @@ struct StackView: View {
     let onDrag: (DragGesture.Value?) -> Void
     let onResize: (Edge, Bool) -> Void
     let onResetPosition: () -> Void
+    var onZoom: () -> Void = {}
 
     var body: some View {
         if prefs.reader && !prefs.compact { readerBody } else { stackBody }
@@ -252,6 +253,8 @@ struct StackView: View {
     func readerHeader(t: Double) -> some View {
         let needCount = store.rows.filter { $0.display == .needs }.count
         return HStack(spacing: 8) {
+            WindowButtons(onClose: { prefs.reader = false }, onMinimize: { prefs.reader = false }, onZoom: onZoom)
+                .padding(.trailing, 6)
             Image(systemName: "square.stack.3d.up.fill").foregroundColor(Color(hex: 0xFF9A00))
             Text("Claude Stack").font(.system(size: 13, weight: .bold)).foregroundColor(textC)
             Spacer()
@@ -260,12 +263,11 @@ struct StackView: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(Display.needs.color.opacity(0.4 + 0.6 * wave(t, hz: 1.6)))
             }
-            iconButton("capsule", "Shrink to a pill") { prefs.reader = false; prefs.compact = true }
-            iconButton("arrow.down.right.and.arrow.up.left", "Back to the small stack") { prefs.reader = false }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .contentShape(Rectangle())
-        .help("Drag to move. Drag an edge or a bottom corner to resize.")
+        .onTapGesture(count: 2, perform: onZoom)
+        .help("Drag to move. Double-click to fill the screen. Drag an edge or a bottom corner to resize.")
     }
 
     @ViewBuilder var menu: some View {
@@ -278,5 +280,38 @@ struct StackView: View {
         Button("Reset position and size", action: onResetPosition)
         Divider()
         Button("Quit Claude Stack") { NSApp.terminate(nil) }
+    }
+}
+
+/// The red, yellow and green buttons, as on every Mac window. Symbols show on hover.
+struct WindowButtons: View {
+    let onClose: () -> Void
+    let onMinimize: () -> Void
+    let onZoom: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            dot(0xFF5F57, "xmark", "Close the reader (the small stack stays)", onClose)
+            dot(0xFEBC2E, "minus", "Shrink to the small stack", onMinimize)
+            dot(0x28C840, "arrow.up.left.and.arrow.down.right", "Fill the screen, or go back to the old size", onZoom)
+        }
+        .onHover { hover = $0 }
+    }
+
+    func dot(_ hex: UInt32, _ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color(hex: hex)).frame(width: 13, height: 13)
+                Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.5).frame(width: 13, height: 13)
+                if hover {
+                    Image(systemName: icon).font(.system(size: 7, weight: .heavy)).foregroundColor(Color.black.opacity(0.6))
+                }
+            }
+            .frame(width: 16, height: 16)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }

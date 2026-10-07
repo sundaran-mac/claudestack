@@ -33,6 +33,9 @@ reader: your sessions on the left, the selected chat on the right.
 - **Read:** headings, bold, real tables, coloured code. Each code block has a **Copy** button,
   each answer has one too, and **Copy last** copies Claude's last answer. **A- / A+** changes
   the text size. Tool calls are folded into "N steps"; click to see the command and its output.
+- **Window buttons** (top left, as on every Mac window): red closes the reader and keeps the
+  small stack, yellow shrinks to the small stack, green fills the screen and a second click
+  brings back the old size and place. Double-clicking the title bar does the same as green.
 - **Resize:** drag the left, right or bottom edge, or a bottom corner. Size and place are saved.
 - **Send:** type in the box and press Enter (Shift+Enter for a new line). The text is pasted
   into the real Claude in that Ghostty tab, so every Claude Code feature works. "Sending to"
