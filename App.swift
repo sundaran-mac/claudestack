@@ -197,6 +197,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidMiniaturize(_ n: Notification) { layout() }
     func windowDidDeminiaturize(_ n: Notification) { layout() }
 
+    func applicationWillTerminate(_ n: Notification) {
+        reader.voice.cancel()
+    }
+
     /// Clicking the Dock icon brings the reader back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         openReader(nil)
@@ -317,6 +321,33 @@ struct Main {
         }
         // Test mode: a simulated workday, printing each reminder as it appears. Usage: ClaudeStack --coach-sim
         if args.count >= 2, args[1] == "--coach-sim" { coachSim(); return }
+        // Test mode: print the input line of a Ghostty terminal. Usage: ClaudeStack --read-input <terminal id>
+        if args.count >= 3, args[1] == "--read-input" { print(readInputLine(args[2]) ?? "(none)"); return }
+        // Test mode: is Claude Code listening in this tab right now? Usage: ClaudeStack --listening <terminal id>
+        if args.count >= 3, args[1] == "--listening" { print((readScreen(args[2]) ?? "").contains("listening") ? "listening" : "-"); return }
+        // Test mode: clear the input line the way voice does. Usage: ClaudeStack --clear-input <terminal id>
+        if args.count >= 3, args[1] == "--clear-input" {
+            clearInputLine(args[2], count: readInputLine(args[2])?.count ?? 0)
+            print(readInputLine(args[2]) ?? "(none)")
+            return
+        }
+        // Test mode: hold voice in a tab for N seconds, then print what came back.
+        // Usage: ClaudeStack --tab-voice <terminal id> <tty> <seconds>
+        if args.count >= 5, args[1] == "--tab-voice" {
+            let s = Session(session_id: "test", cwd: nil, project: nil, branch: nil, status: nil, reason: nil, prompt: nil,
+                            pid: nil, tty: args[3], term: "ghostty", started_at: nil, updated_at: nil, status_since: nil,
+                            transcript_path: nil, last_tool: nil, last_detail: nil, pending_tool: nil, pending_detail: nil)
+            let v = TabVoice()
+            var finished = false
+            v.onUpdate = { state, text, err in
+                print("\(state): \(text)\(err.map { " (\($0))" } ?? "")")
+                if state == "done" { finished = true }
+            }
+            v.start(s)
+            DispatchQueue.main.asyncAfter(deadline: .now() + (Double(args[4]) ?? 4)) { v.stop() }
+            while !finished { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return
+        }
         // Test mode: draw the web reader for a transcript into a PNG.
         // Usage: ClaudeStack --reader-snapshot file.jsonl out.png [state.json]
         if args.count >= 4, args[1] == "--reader-snapshot" {
@@ -375,13 +406,13 @@ func readerSnapshot(transcript: String, out: String, state: String?) {
     let dir = webDir()
     w.loadFileURL(dir.appendingPathComponent("reader.html"), allowingReadAccessTo: dir)
     func json(_ o: Any) -> String {
-        String(data: (try? JSONSerialization.data(withJSONObject: o)) ?? Data(), encoding: .utf8) ?? "null"
+        String(data: (try? JSONSerialization.data(withJSONObject: o, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8) ?? "null"
     }
     var finished = false
     func waitLoad(_ n: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             if w.isLoading && n < 50 { return waitLoad(n + 1) }
-            let js = "CS.reset({sid:'test'}); CS.setItems(\(json(["sid": "test", "items": items, "hasMore": false]))); CS.setState(\(json(st))); CS.setAgents(\(json(["sid": "test", "agents": agents]))); document.title"
+            let js = "CS.reset({sid:'test'}); CS.setItems(\(json(["sid": "test", "items": items, "hasMore": false]))); CS.setState(\(json(st))); CS.setAgents(\(json(["sid": "test", "agents": agents]))); CS.mode(\(json(st["mode"] ?? "chats"))); document.title"
             w.evaluateJavaScript(js) { _, err in
                 if let err { FileHandle.standardError.write("JS error: \(err)\n".data(using: .utf8)!) }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

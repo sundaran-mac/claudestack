@@ -36,9 +36,11 @@ touch agents/main/subagents/agent-eee.jsonl
 acheck "agent done by a queued notice" "$(st eee done)"
 acheck "quiet nested agent counts as done" "$(st ddd done)"
 acheck "running agents come first" '.[0].id == "ccc"'
-acheck "current step of a running agent" '(.[] | select(.id == "ccc")) | .tool == "Edit" and .detail == "/repo/c.ts" and .steps == 2'
+acheck "current step of a running agent" '(.[] | select(.id == "ccc")) | .tool == "Edit" and .detail == "/repo/c.ts" and .steps == 3'
 acheck "type and description from meta" '(.[] | select(.id == "aaa")) | .type == "Plan" and .desc == "Plan story A" and .depth == 1'
 acheck "nested depth kept" '(.[] | select(.id == "ddd")) | .depth == 2'
+acheck "nested agent knows who started it" '(.[] | select(.id == "ddd")) | .parent == "ccc"'
+acheck "agents started by the lead have no parent" '(.[] | select(.id == "aaa")) | .parent == ""'
 main=$("$BIN" --parse agents/main.jsonl)
 if [ "$(jq -r '[.items[] | select(.role == "note") | .blocks[0].text] | map(select(test("Finished: Agent"))) | length == 2' <<<"$main")" = "true" ]; then echo "ok   finished notice shown as a note"; else echo "FAIL finished notice shown as a note"; fail=1; fi
 sub=$("$BIN" --parse agents/main/subagents/agent-aaa.jsonl)

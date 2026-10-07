@@ -29,6 +29,15 @@
   <span id="viewlabel"></span>
 </div>
 
+<section id="agentsview" hidden>
+  <div id="am-summary" class="am-summary"></div>
+  <div class="am-title">Map <span>who started whom, live</span></div>
+  <div id="am-mapwrap" class="am-mapwrap"><svg id="am-edges" class="am-edges"></svg><div id="am-map" class="am-map"></div></div>
+  <div class="am-title">Timeline <span>what ran at the same time</span></div>
+  <div id="am-timeline" class="am-timeline"></div>
+  <div id="am-empty" class="am-empty" hidden></div>
+</section>
+
 <main id="scroll">
   <button id="more" class="more" hidden>Load earlier messages</button>
   <div id="chat"></div>
@@ -52,7 +61,7 @@
       <button id="send" class="btn primary" title="Send (Enter). New line: Shift+Enter">Send</button>
     </div>
   </div>
-  <div id="voice" class="voice" hidden><span class="mic"></span><span id="voice-text">Listening... let go of space to stop</span></div>
+  <div id="voice" class="voice" hidden><span class="mic"></span><span id="voice-text">Listening...</span></div>
   <div id="blocked" class="blocked" hidden></div>
 </footer>
 

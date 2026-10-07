@@ -299,3 +299,105 @@ pre.plain {
 .tc-title { color: var(--text); font-weight: 700; font-size: 1.02em; margin: 2px 0 6px; }
 .tc-row { display: flex; gap: 10px; font-size: .93em; margin-top: 3px; }
 .tc-k { flex: none; width: 74px; color: var(--muted); font-weight: 600; }
+
+/* Agents tab: summary, map, timeline */
+.ag-open { margin-left: auto; color: var(--blue-soft); font-weight: 700; cursor: pointer; }
+#agentsview { flex: 1; overflow: auto; padding: 18px 22px 24px; }
+.am-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.sm { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; min-width: 92px; }
+.sm b { display: block; color: var(--text); font-size: 20px; font-weight: 800; line-height: 1.2; }
+.sm span { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.sm.c-run b { color: var(--blue-soft); }
+.sm.c-done b { color: var(--green); }
+.sm.c-bad b { color: var(--red); }
+.am-title { color: var(--text); font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; margin: 6px 0 10px; }
+.am-title span { color: var(--muted); font-weight: 600; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+
+.am-mapwrap { position: relative; overflow-x: auto; padding: 4px 4px 22px; margin-bottom: 18px; border: 1px solid var(--line);
+  border-radius: 14px; background: radial-gradient(circle at 1px 1px, rgba(138,155,174,.13) 1px, transparent 0) 0 0/18px 18px; }
+.am-edges { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.am-map { position: relative; display: flex; justify-content: center; padding: 18px 12px 0; }
+.tnode { display: flex; flex-direction: column; align-items: center; }
+.tkids { display: flex; gap: 14px; margin-top: 46px; align-items: flex-start; justify-content: center; }
+/* Many agents from the lead wrap onto more rows instead of running off the side. */
+.root > .tkids { flex-wrap: wrap; row-gap: 40px; max-width: 100%; }
+
+.edge { fill: none; stroke-width: 2; }
+.edge.e-running, .edge.e-stuck { stroke: var(--blue-soft); stroke-dasharray: 7 7; animation: flow 0.9s linear infinite; }
+.edge.e-stuck { stroke: var(--amber); }
+.edge.e-done { stroke: rgba(6,194,122,.45); }
+.edge.e-failed { stroke: rgba(232,68,90,.55); }
+.edge.e-stopped { stroke: rgba(138,155,174,.4); }
+@keyframes flow { to { stroke-dashoffset: -14; } }
+
+.acard { width: 220px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 12px; padding: 10px 12px; cursor: pointer; transition: transform .15s, border-color .15s; position: relative; z-index: 1; }
+.acard:hover { transform: translateY(-2px); border-color: var(--blue); }
+.acard.lead { width: 260px; cursor: default; border-left-color: var(--orange); background: var(--elevated); }
+.acard.lead:hover { transform: none; border-color: var(--line); }
+.acard.st-running { border-left-color: var(--blue-soft); box-shadow: 0 0 0 1px rgba(91,155,230,.25); animation: cardglow 2.4s ease-in-out infinite; }
+.acard.st-stuck { border-left-color: var(--amber); }
+.acard.st-done { border-left-color: var(--green); }
+.acard.st-failed { border-left-color: var(--red); }
+@keyframes cardglow { 50% { box-shadow: 0 0 16px rgba(91,155,230,.30); } }
+.ac-top { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+.ac-type { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: 1px 7px; border-radius: 20px;
+  background: rgba(138,155,174,.15); color: var(--soft); white-space: nowrap; }
+.t-plan .ac-type, .ac-type.t-plan { background: rgba(167,139,250,.18); color: #C4B5FD; }
+.t-explore .ac-type, .ac-type.t-explore { background: rgba(45,212,191,.16); color: #5EEAD4; }
+.t-general .ac-type, .ac-type.t-general { background: rgba(91,155,230,.18); color: #93C5FD; }
+.lead .ac-type { background: rgba(255,154,0,.16); color: #FFC36B; }
+.ac-time { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.ac-desc { color: var(--text); font-weight: 700; font-size: 13.5px; line-height: 1.35; }
+.ac-step { font-family: var(--mono); font-size: 11px; color: var(--soft); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.lead-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+.ring { width: 18px; height: 18px; flex: none; }
+.ring circle { fill: none; stroke-width: 2.6; }
+.ring .rb { stroke: rgba(138,155,174,.25); }
+.ring .rf { stroke-linecap: round; transform-origin: 12px 12px; transform: rotate(-90deg); }
+.ring path { fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+/* Spin the whole ring, not the arc: the arc's own rotate(-90deg) and a spin animation on the same
+   element fought over "transform", so each turn restarted part way round. */
+.r-running .rf { stroke: var(--blue-soft); }
+.ring.r-running { animation: spin 1.1s linear infinite; transform-origin: 50% 50%; }
+.r-stuck .rf, .r-stuck path { stroke: var(--amber); }
+.r-done .rf, .r-done path { stroke: var(--green); }
+.r-failed .rf, .r-failed path { stroke: var(--red); }
+.r-stopped .rf, .r-stopped path { stroke: var(--muted); }
+
+.am-timeline { border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px 10px; background: rgba(28,43,58,.35); }
+.tl-axis, .tl-row { display: grid; grid-template-columns: minmax(150px, 30%) 1fr 64px; gap: 12px; align-items: center; }
+.tl-ticks { position: relative; height: 18px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.tl-ticks span { position: absolute; transform: translateX(-50%); }
+.tl-ticks span:first-child { transform: none; }
+.tl-ticks span:last-child { transform: translateX(-100%); }
+.tl-row { padding: 5px 0; border-top: 1px solid rgba(46,63,80,.6); cursor: pointer; }
+.tl-row:hover .tl-desc { color: var(--text); }
+.tl-label { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.tl-desc { color: var(--soft); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-track { position: relative; height: 12px; background: rgba(46,63,80,.45); border-radius: 6px; }
+.tl-bar { position: absolute; top: 0; bottom: 0; border-radius: 6px; background: var(--green); }
+.tl-bar.st-running { background: repeating-linear-gradient(-45deg, var(--blue-soft) 0 8px, #4A86CF 8px 16px); background-size: 22px 22px;
+  animation: stripes 0.8s linear infinite; box-shadow: 0 0 10px rgba(91,155,230,.45); }
+.tl-bar.st-stuck { background: var(--amber); }
+.tl-bar.st-failed { background: var(--red); }
+.tl-bar.st-stopped { background: var(--muted); }
+@keyframes stripes { to { background-position: 22px 0; } }
+.tl-dur { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; }
+
+.am-empty { max-width: 560px; margin: 50px auto; text-align: center; }
+.am-empty-title { color: var(--text); font-weight: 800; font-size: 18px; margin-bottom: 6px; }
+.am-empty-sub { color: var(--muted); margin-bottom: 18px; }
+.how { display: grid; gap: 10px; text-align: left; }
+.how div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; color: var(--soft); }
+.how b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: white; margin-right: 10px; font-size: 12px; }
+.how em { color: var(--text); font-style: normal; font-weight: 700; }
+
+/* Vertical tree, for when the agents do not fit in one row */
+.am-map.vertical { justify-content: flex-start; padding: 16px 16px 0; }
+.am-map.vertical .tnode { align-items: flex-start; }
+.am-map.vertical .tkids, .am-map.vertical .root > .tkids { flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 10px 0 0 40px; row-gap: 10px; }
+.am-map.vertical .acard { width: min(560px, 70vw); }
+.am-map.vertical .acard .ac-desc { display: inline; }

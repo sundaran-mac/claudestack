@@ -44,6 +44,8 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
     var onSelect: (() -> Void)?
 
     @Published private(set) var selectedId: String?
+    /// The reader's tab: chats, agents or settings. Agents and chats share the same page.
+    @Published var tab = "chats" { didSet { if tab != "settings" { js("CS.mode", tab) } } }
     private var rows: [Row] = []
     private var mainReader: TranscriptReader?
     private var agentReader: TranscriptReader?
@@ -58,13 +60,13 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
     private var commandsCwd: String?
     private var ready = false
     private let parseQ = DispatchQueue(label: "parse")
-    let voice = Voice()
+    let voice = TabVoice()
 
     init(prefs: Prefs) {
         self.prefs = prefs
         super.init()
-        voice.onUpdate = { [weak self] text, final, err in
-            self?.js("CS.voice", ["text": text, "final": final, "error": err ?? ""])
+        voice.onUpdate = { [weak self] state, text, err in
+            self?.js("CS.voice", ["state": state, "text": text, "error": err ?? ""])
         }
     }
 
@@ -242,6 +244,7 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
         case "ready":
             ready = true
             lastItemsKey = ""; lastStateJSON = ""; lastAgentsJSON = ""; viewAgent = nil; agentReader = nil
+            if tab == "agents" { js("CS.mode", "agents") }
             if let id = selectedId { js("CS.reset", ["sid": id]) }
             commandsCwd = nil
             refresh()
@@ -262,8 +265,13 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
         case "more":
             limit += 60
             refresh()
+        case "tab":
+            if let t = body["tab"] as? String, ["chats", "agents", "settings"].contains(t) { tab = t }
         case "openAgent":
-            if sameSession(), let id = body["id"] as? String { openAgent(id, label: body["label"] as? String ?? "Agent") }
+            if sameSession(), let id = body["id"] as? String {
+                tab = "chats"
+                openAgent(id, label: body["label"] as? String ?? "Agent")
+            }
         case "closeAgent":
             openAgent(nil, label: "")
         case "font":
@@ -273,7 +281,16 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
         case "focusTab":
             if let row { onFocusTab?(row.s) }
         case "voice":
-            if body["on"] as? Bool == true { voice.start() } else { voice.stop() }
+            if body["on"] as? Bool == true {
+                // Voice runs in the selected tab, through Claude Code's own voice mode.
+                guard sameSession(), let row else {
+                    voiceLog("refused: the message was not for the selected session")
+                    return js("CS.voice", ["state": "done", "text": "", "error": "You switched sessions. Voice did not start."])
+                }
+                voice.start(row.s)
+            } else {
+                voice.stop()
+            }
         case "send":
             guard sameSession(), let row, let text = body["text"] as? String else {
                 return js("CS.sent", ["ok": false, "error": "You switched sessions. Nothing was sent."])

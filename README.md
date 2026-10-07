@@ -52,12 +52,18 @@ your sessions on the left, the selected chat on the right.
   names the target tab, and the app checks that tab before it sends.
 - **Slash commands:** type `/` for a list of built-in commands, your skills and plugin skills.
   Commands that open a menu (`/model`, `/config`, ...) bring the tab to the front.
-- **Voice:** hold space in the box. The Mac's speech engine writes your words into the box, so
-  you can fix them before sending. A short tap is a normal space. macOS asks for Microphone and
-  Speech Recognition permission the first time.
+- **Voice:** hold space in the box. It is Claude Code's own voice mode, the same as in Ghostty:
+  the app sends a "held space" to that tab with Ghostty's `text` action, Claude Code listens and
+  writes your words (with its punctuation), then the app moves them into the box so you can edit
+  before sending. A short tap is a normal space. Ghostty tabs only, and off while a tab needs you.
+  To read the words, the app borrows the clipboard for a moment and puts your content back.
 - **Answer from the box:** when a tab needs you, the reader shows the question options, or
   Allow once / Deny for a permission, or Approve / Keep planning for a plan. Anything more
   complex has an **Open tab** button.
+- **Agents tab:** a summary (running, done, steps, how many ran at the same time), a live map of
+  who started whom (the lead on top, agents below, flowing lines to running ones; a vertical tree
+  when they do not fit in one row), and a timeline with one bar per agent. Click any agent to read
+  its chat. Generated HTML uses `data-style`, because the page's security rule ignores `style=`.
 - **Agents:** when Claude runs subagents, an Agents bar shows each one: type, description,
   current step, step count and time. Running agents come first, finished ones fold away. Click
   an agent to read its own chat; "Back to main chat" returns. The small stack shows a

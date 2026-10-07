@@ -5,3 +5,5 @@ sessions/
 .DS_Store
 days/
 day.json
+sign-identity
+voice.log

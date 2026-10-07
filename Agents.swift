@@ -11,13 +11,15 @@ final class AgentScan {
     private(set) var lastDetail = ""
     private(set) var firstTime: Double?
     private(set) var lastTime: Double?
+    /// tool_use ids of the agents this agent started, so the map can draw who started whom.
+    private(set) var spawned: [String] = []
     var mtime: Date?
 
     func update(_ path: String) {
         guard let h = FileHandle(forReadingAtPath: path) else { return }
         defer { try? h.close() }
         let size = (try? h.seekToEnd()) ?? 0
-        if size < offset { offset = 0; leftover = Data(); steps = 0; firstTime = nil }
+        if size < offset { offset = 0; leftover = Data(); steps = 0; firstTime = nil; spawned = [] }
         guard size > offset else { return }
         try? h.seek(toOffset: offset)
         var data = leftover
@@ -37,6 +39,7 @@ final class AgentScan {
             for p in parts where p["type"] as? String == "tool_use" && p["name"] as? String != "SubagentHandback" {
                 steps += 1
                 lastTool = p["name"] as? String ?? ""
+                if lastTool == "Agent" || lastTool == "Task", let id = p["id"] as? String { spawned.append(id) }
                 lastDetail = toolDetail(lastTool, p["input"] as? [String: Any] ?? [:])
             }
         }
@@ -109,6 +112,14 @@ final class AgentScanner {
                 "end": end,
             ]
             out.append(item)
+        }
+        // Who started whom: an agent's parent is the agent whose file holds its tool_use id.
+        var startedBy: [String: String] = [:]
+        for (id, scan) in scans { for t in scan.spawned { startedBy[t] = id } }
+        out = out.map { a in
+            var a = a
+            a["parent"] = startedBy[a["toolUse"] as? String ?? ""] ?? ""
+            return a
         }
         let live = out.filter { $0["status"] as? String == "running" || $0["status"] as? String == "stuck" }
             .sorted { ($0["start"] as? Double ?? 0) < ($1["start"] as? Double ?? 0) }

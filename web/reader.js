@@ -49,6 +49,16 @@ marked.use({
   },
 });
 
+// The page's security rule (style-src 'self') ignores style="..." in HTML, so generated HTML
+// carries data-style instead, and this watcher applies it through the DOM, which is allowed.
+function applyStyles(root) {
+  if (root.dataset && root.dataset.style) root.style.cssText = root.dataset.style;
+  root.querySelectorAll && root.querySelectorAll("[data-style]").forEach((el) => { el.style.cssText = el.dataset.style; });
+}
+new MutationObserver((list) => {
+  for (const m of list) m.addedNodes.forEach((n) => { if (n.nodeType === 1) applyStyles(n); });
+}).observe(document.body, { childList: true, subtree: true });
+
 let cards = [];
 
 function timecheckCard(text) {
@@ -65,7 +75,7 @@ function timecheckCard(text) {
   const row = (k, v) => v ? `<div class="tc-row"><span class="tc-k">${k}</span><span>${esc(v)}</span></div>` : "";
   return `<div class="timecheck ${fits ? "fits" : "nofit"}">` +
     `<svg class="tc-ring" viewBox="0 0 64 64"><circle class="tc-bg" cx="32" cy="32" r="${r}"/>` +
-    `<circle class="tc-fg" cx="32" cy="32" r="${r}" style="--len:${len.toFixed(1)};--off:${(len * (1 - share)).toFixed(1)}"/>` +
+    `<circle class="tc-fg" cx="32" cy="32" r="${r}" data-style="--len:${len.toFixed(1)};--off:${(len * (1 - share)).toFixed(1)}"/>` +
     `<text x="32" y="36" text-anchor="middle">${need}m</text></svg>` +
     `<div class="tc-body"><div class="tc-label">End-of-day time check</div><div class="tc-title">${esc(title)}</div>` +
     row("Now", t.now) + row("Tomorrow", t.later) + `</div></div>`;
@@ -139,7 +149,8 @@ window.CS = {
     setStick(true);
     $("pending").hidden = true;
     $("more").hidden = true;
-    agents = []; viewAgent = ""; showDone = false;
+    agents = []; viewAgent = ""; showDone = false; mapKey = "";
+    if (mode === "agents") drawMap();
     $("agents").hidden = true;
     $("viewbar").hidden = true;
     $("empty").hidden = true;
@@ -225,17 +236,23 @@ window.CS = {
     } else toast("Sent", true);
   },
 
-  voice({ text, final, error }) {
-    if (error) { voiceOn = false; $("voice").hidden = true; return toast(error, false); }
-    if (voiceBase) {
-      const join = voiceBase.before && !/\s$/.test(voiceBase.before) && text ? " " : "";
+  // Voice runs in the tab through Claude Code's own voice mode. States: listening, writing, done.
+  voice({ state, text, error }) {
+    if (state === "listening") { $("voice-text").textContent = "Listening in the tab (Claude Code voice)... let go of space to stop"; return; }
+    if (state === "writing") { $("voice-text").textContent = "Claude Code is writing your words..."; return; }
+    voiceOn = false;
+    $("voice").hidden = true;
+    if (error) { voiceBase = null; return toast(error, false); }
+    if (voiceBase && text) {
+      const join = voiceBase.before && !/\s$/.test(voiceBase.before) ? " " : "";
       input.value = voiceBase.before + join + text + voiceBase.after;
       const pos = (voiceBase.before + join + text).length;
+      input.focus();
       input.setSelectionRange(pos, pos);
-      autosize();
       drafts[sid] = input.value;
+      autosize();
     }
-    if (final) { voiceOn = false; voiceBase = null; $("voice").hidden = true; }
+    voiceBase = null;
   },
 
   paste(text) { insertText(text); },
@@ -243,6 +260,7 @@ window.CS = {
   setAgents({ sid: id, agents: list }) {
     if (id !== sid) return;
     agents = list || [];
+    if (mode === "agents") drawMap();
     const key = JSON.stringify(agents.map((a) => [a.id, a.status, a.tool, a.detail, a.steps])) + viewAgent + showDone + agentsOpen;
     if (key === agentsKey) {
       // Only the timers moved: change those numbers in place, no redraw.
@@ -255,6 +273,18 @@ window.CS = {
     agentsKey = key;
     drawAgents();
     updateAgentChips();
+  },
+
+  // The reader's tab: "chats" shows the chat, "agents" shows the map and the timeline.
+  mode(m) {
+    mode = m === "agents" ? "agents" : "chats";
+    const a = mode === "agents";
+    $("agentsview").hidden = !a;
+    $("scroll").hidden = a;
+    $("latest").hidden = a || stick;
+    $("viewbar").hidden = a || !viewAgent;
+    drawAgents();
+    if (a) { mapKey = ""; drawMap(); } else if (stick) toBottom();
   },
 
   view({ agent, label }) {
@@ -409,6 +439,7 @@ $("font-up").onclick = () => setFont(1);
 
 // ---------- Agents ----------
 let agents = [], viewAgent = "", showDone = false, agentsOpen = true, agentsKey = "";
+let mode = "chats", mapKey = "";
 const AGENT_LABEL = { running: "Running", stuck: "Maybe stuck", done: "Done", failed: "Failed", stopped: "Stopped" };
 
 function dur(s) {
@@ -421,7 +452,7 @@ function agentRow(a) {
   const step = a.status === "running" || a.status === "stuck"
     ? (a.tool ? `${a.tool}${a.detail ? ": " + a.detail : ""}` : "Starting...")
     : AGENT_LABEL[a.status] + (a.tool ? ` · last step ${a.tool}` : "");
-  const pad = a.depth > 1 ? ` style="margin-left:${(a.depth - 1) * 18}px"` : "";
+  const pad = a.depth > 1 ? ` data-style="margin-left:${(a.depth - 1) * 18}px"` : "";
   return `<div class="agent st-${esc(a.status)}${a.id === viewAgent ? " on" : ""}" data-agent="${esc(a.id)}" data-label="${esc(a.desc)}"${pad} title="Click to read this agent's chat">` +
     `<span class="adot"></span><span class="atype">${esc(a.type)}</span><span class="adesc">${esc(a.desc)}</span>` +
     `<span class="ameta">${a.steps} step${a.steps === 1 ? "" : "s"} · ${dur(a.secs)}</span>` +
@@ -429,6 +460,7 @@ function agentRow(a) {
 }
 
 function drawAgents() {
+  if (mode === "agents") { $("agents").hidden = true; return; }
   agentsKey = JSON.stringify(agents.map((a) => [a.id, a.status, a.tool, a.detail, a.steps])) + viewAgent + showDone + agentsOpen;
   const box = $("agents");
   if (!agents.length) { box.hidden = true; box.innerHTML = ""; return; }
@@ -436,7 +468,8 @@ function drawAgents() {
   const done = agents.filter((a) => !(a.status === "running" || a.status === "stuck"));
   let html = `<div class="ag-head${agentsOpen ? "" : " closed"}" data-toggle="1"><b>Agents</b>` +
     (live.length ? `<span class="run">${live.length} running</span>` : "") +
-    (done.length ? `<span>${done.length} finished</span>` : "") + `</div>`;
+    (done.length ? `<span>${done.length} finished</span>` : "") +
+    `<span class="ag-open" data-openmap="1">Open map</span></div>`;
   if (agentsOpen) {
     html += live.map(agentRow).join("");
     if (done.length) {
@@ -463,8 +496,142 @@ function updateAgentChips() {
   });
 }
 
+// ---------- Agent map and timeline ----------
+const TYPE_CLASS = (t) => ({ Plan: "t-plan", Explore: "t-explore", "general-purpose": "t-general" }[t] || "t-other");
+const isLive = (a) => a.status === "running" || a.status === "stuck";
+
+function ring(status) {
+  const r = 9, c = 2 * Math.PI * r;
+  const mark = { done: '<path d="M7 12.5l3.2 3 6.3-6.5"/>', failed: '<path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/>',
+                 stuck: '<path d="M12 7.5v5.5M12 16.2v.3"/>', stopped: '<path d="M9 12h6"/>' }[status] || "";
+  return `<svg class="ring r-${status}" viewBox="0 0 24 24"><circle class="rb" cx="12" cy="12" r="${r}"/>` +
+    `<circle class="rf" cx="12" cy="12" r="${r}" data-style="stroke-dasharray:${c.toFixed(1)};stroke-dashoffset:${(status === "running" ? c * 0.7 : 0).toFixed(1)}"/>${mark}</svg>`;
+}
+
+function card(a) {
+  const step = isLive(a) ? (a.tool ? `${a.tool}${a.detail ? ": " + a.detail : ""}` : "Starting...") : (a.tool ? `Last step: ${a.tool}` : "");
+  return `<div class="acard st-${esc(a.status)} ${TYPE_CLASS(a.type)}" data-agent="${esc(a.id)}" data-label="${esc(a.desc)}" title="Click to read this agent's chat">` +
+    `<div class="ac-top">${ring(a.status)}<span class="ac-type">${esc(a.type)}</span><span class="ac-time" data-time="${esc(a.id)}">${dur(a.secs)}</span></div>` +
+    `<div class="ac-desc">${esc(a.desc || "Agent")}</div>` +
+    (step ? `<div class="ac-step">${esc(step)}</div>` : "") +
+    `<div class="ac-meta"><span class="ac-steps" data-steps="${esc(a.id)}">${a.steps} step${a.steps === 1 ? "" : "s"}</span> · ${esc(AGENT_LABEL[a.status] || a.status)}</div></div>`;
+}
+
+function leadCard() {
+  return `<div class="acard lead" id="am-lead"><div class="ac-top"><span class="lead-dot" data-style="background:${esc(state.color || "#8A9BAE")}"></span>` +
+    `<span class="ac-type">Lead · your Claude tab</span></div><div class="ac-desc">${esc(state.project || "Claude")}</div>` +
+    `<div class="ac-meta">${esc(state.branch || "")}${state.branch ? " · " : ""}${esc(state.display || "")}</div></div>`;
+}
+
+function drawMap() {
+  const view = $("agentsview");
+  const has = agents.length > 0;
+  $("am-empty").hidden = has;
+  view.querySelectorAll(".am-title, #am-mapwrap, #am-timeline, #am-summary").forEach((el) => { el.hidden = !has; });
+  if (!has) {
+    $("am-empty").innerHTML = `<div class="am-empty-title">No agents in this chat yet</div>` +
+      `<div class="am-empty-sub">When Claude starts agents, they show up here live. This is how they work:</div>` +
+      `<div class="how"><div><b>1</b>Your Claude tab is the <em>lead</em>. It splits the work and starts agents.</div>` +
+      `<div><b>2</b>Each <em>agent</em> works alone, with its own chat and tools. It can start agents too.</div>` +
+      `<div><b>3</b>When an agent is done, it <em>hands back</em> a short result and the lead continues.</div></div>`;
+    return;
+  }
+  const key = JSON.stringify(agents.map((a) => [a.id, a.status, a.tool, a.detail, a.parent])) + state.display;
+  if (key === mapKey) { tickMap(); return; }
+  mapKey = key;
+
+  // Summary
+  const live = agents.filter(isLive).length, done = agents.filter((a) => a.status === "done").length;
+  const bad = agents.length - live - done;
+  const t0 = Math.min(...agents.map((a) => a.start)), t1 = Math.max(...agents.map((a) => a.end));
+  const steps = agents.reduce((n, a) => n + a.steps, 0);
+  // The most agents that ran at the same moment.
+  const ev = agents.flatMap((a) => [[a.start, 1], [a.end, -1]]).sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  let cur = 0, peak = 0;
+  for (const [, d] of ev) { cur += d; peak = Math.max(peak, cur); }
+  const chip = (n, label, cls) => `<div class="sm ${cls}"><b>${n}</b><span>${label}</span></div>`;
+  $("am-summary").innerHTML = chip(live, "running", "c-run") + chip(done, "done", "c-done") +
+    (bad ? chip(bad, "failed or stopped", "c-bad") : "") + chip(steps, "steps", "") +
+    chip(peak, "at the same time, at most", "") + chip(dur(Math.round(t1 - t0)), "from first start", "");
+
+  // Map: the lead on top, each agent under the one that started it.
+  const ids = new Set(agents.map((a) => a.id));
+  const kids = {};
+  for (const a of agents) {
+    const p = a.parent && ids.has(a.parent) ? a.parent : "";
+    (kids[p] = kids[p] || []).push(a);
+  }
+  const branch = (a) => `<div class="tnode">${card(a)}${(kids[a.id] || []).length ? `<div class="tkids">${kids[a.id].map(branch).join("")}</div>` : ""}</div>`;
+  $("am-map").innerHTML = `<div class="tnode root">${leadCard()}<div class="tkids">${(kids[""] || []).map(branch).join("")}</div></div>`;
+  // Top-down while the lead's agents fit in one row; past that a vertical tree, so lines never cross a card.
+  const fit = Math.max(1, Math.floor(($("am-mapwrap").clientWidth - 24) / 234));
+  $("am-map").classList.toggle("vertical", (kids[""] || []).length > fit);
+
+  // Timeline: one bar per agent, oldest first.
+  const span = Math.max(1, t1 - t0);
+  const pct = (t) => ((t - t0) / span) * 100;
+  // Seconds too when the whole span is short, or every label reads the same minute.
+  const clock = (t) => new Date(t * 1000).toTimeString().slice(0, span < 600 ? 8 : 5);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => `<span data-style="left:${f * 100}%">${clock(t0 + f * span)}</span>`).join("");
+  const rows = [...agents].sort((x, y) => x.start - y.start).map((a) =>
+    `<div class="tl-row" data-agent="${esc(a.id)}" data-label="${esc(a.desc)}" title="${esc(a.desc)}">` +
+    `<div class="tl-label"><span class="ac-type ${TYPE_CLASS(a.type)}">${esc(a.type)}</span><span class="tl-desc">${esc(a.desc)}</span></div>` +
+    `<div class="tl-track"><div class="tl-bar st-${esc(a.status)}" data-style="left:${pct(a.start).toFixed(2)}%;width:${Math.max(0.8, pct(a.end) - pct(a.start)).toFixed(2)}%"></div></div>` +
+    `<div class="tl-dur" data-time="${esc(a.id)}">${dur(a.secs)}</div></div>`).join("");
+  $("am-timeline").innerHTML = `<div class="tl-axis"><div></div><div class="tl-ticks">${ticks}</div><div></div></div>${rows}`;
+  requestAnimationFrame(drawEdges);
+  // Again once fonts and sizes have settled, in case the first draw came too early.
+  setTimeout(drawEdges, 120);
+}
+
+/// Only the clocks and step counts moved: change those numbers, no redraw.
+function tickMap() {
+  for (const a of agents) {
+    document.querySelectorAll(`#agentsview [data-time="${CSS.escape(a.id)}"]`).forEach((el) => { el.textContent = dur(a.secs); });
+    const st = document.querySelector(`#agentsview [data-steps="${CSS.escape(a.id)}"]`);
+    if (st) st.textContent = `${a.steps} step${a.steps === 1 ? "" : "s"}`;
+  }
+}
+
+/// Curved lines from each card to the cards it started. Running ones flow.
+function drawEdges() {
+  const wrap = $("am-mapwrap"), svg = $("am-edges");
+  if (!wrap || wrap.hidden) return;
+  const box = wrap.getBoundingClientRect();
+  svg.setAttribute("width", wrap.scrollWidth);
+  svg.setAttribute("height", wrap.scrollHeight);
+  const pos = (el) => {
+    const r = el.getBoundingClientRect();
+    const left = r.left - box.left + wrap.scrollLeft;
+    return { x: left + r.width / 2, left, top: r.top - box.top + wrap.scrollTop, bottom: r.bottom - box.top + wrap.scrollTop };
+  };
+  const vertical = $("am-map").classList.contains("vertical");
+  // Running lines go last, so they are drawn on top of the finished ones they share a trunk with.
+  let paths = "", livePaths = "";
+  wrap.querySelectorAll(".tnode").forEach((node) => {
+    const from = node.querySelector(":scope > .acard");
+    node.querySelectorAll(":scope > .tkids > .tnode > .acard").forEach((to) => {
+      const a = pos(from), b = pos(to);
+      const status = (to.className.match(/st-(\w+)/) || [])[1] || "done";
+      if (vertical) {
+        // Elbow: down the parent's left side, then right into the child's middle.
+        const x = a.left + 18, y = (b.top + b.bottom) / 2;
+        const p = `<path class="edge e-${status}" d="M${x} ${a.bottom} V${y - 8} Q${x} ${y} ${x + 8} ${y} H${b.left}"/>`;
+        if (status === "running" || status === "stuck") livePaths += p; else paths += p;
+      } else {
+        const y1 = a.bottom, y2 = b.top, dy = (y2 - y1) / 2;
+        const p = `<path class="edge e-${status}" d="M${a.x} ${y1} C${a.x} ${y1 + dy} ${b.x} ${y2 - dy} ${b.x} ${y2}"/>`;
+        if (status === "running" || status === "stuck") livePaths += p; else paths += p;
+      }
+    });
+  });
+  svg.innerHTML = paths + livePaths;
+}
+window.addEventListener("resize", () => { if (mode === "agents") requestAnimationFrame(drawEdges); });
+
 // mousedown, not click: the bar is redrawn every half second while agents run.
 document.addEventListener("mousedown", (e) => {
+  if (e.target.closest("[data-openmap]")) { e.preventDefault(); return post({ type: "tab", tab: "agents" }); }
   const t = e.target.closest("[data-toggle]");
   if (t) { agentsOpen = !agentsOpen; return drawAgents(); }
   const d = e.target.closest("[data-done]");
@@ -645,17 +812,20 @@ function flushSpace() {
   if (spaceTimer) { clearTimeout(spaceTimer); spaceTimer = null; insertText(" "); }
 }
 function startVoice() {
+  // Spaces sent to a tab that shows a question or permission menu would pick an option there.
+  if (!state.canSend) return toast(state.block || "Voice works only in Ghostty tabs.", false);
+  if (state.pending) return toast("Claude is waiting for your answer above. Answer that first, then speak.", false);
   voiceOn = true;
   const s = input.selectionStart, e = input.selectionEnd;
   voiceBase = { before: input.value.slice(0, s), after: input.value.slice(e) };
-  $("voice-text").textContent = "Listening... let go of space to stop";
+  $("voice-text").textContent = "Starting Claude Code voice in the tab...";
   $("voice").hidden = false;
-  post({ type: "voice", on: true });
+  post({ type: "voice", on: true, sid });
 }
 function stopVoice() {
   if (!voiceOn) return;
-  $("voice-text").textContent = "Finishing...";
-  post({ type: "voice", on: false });
+  $("voice-text").textContent = "Claude Code is writing your words...";
+  post({ type: "voice", on: false, sid });
 }
 
 input.addEventListener("keydown", (e) => {

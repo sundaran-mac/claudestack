@@ -199,13 +199,13 @@ struct ReaderView: View {
     @ObservedObject var prefs: Prefs
     let web: ReaderWebView
     var onKeepOnTop: () -> Void = {}
-    @State private var tab = "chats"
 
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 8) {
-                Picker("", selection: $tab) {
+                Picker("", selection: $reader.tab) {
                     Text("Chats").tag("chats")
+                    Text("Agents").tag("agents")
                     Text("Settings").tag("settings")
                 }
                 .pickerStyle(.segmented).labelsHidden()
@@ -218,7 +218,7 @@ struct ReaderView: View {
                             ForEach(store.rows) { r in
                                 RowView(row: r, now: store.now, t: tl.date.timeIntervalSinceReferenceDate,
                                         selected: r.id == reader.selectedId,
-                                        onTap: { reader.select(r.id); tab = "chats" })
+                                        onTap: { reader.select(r.id); if reader.tab == "settings" { reader.tab = "chats" } })
                             }
                         }
                         .padding(.horizontal, 8).padding(.bottom, 8)
@@ -230,8 +230,8 @@ struct ReaderView: View {
             Rectangle().fill(borderC).frame(width: 1)
             // The web view stays alive under Settings, so the chat does not reload.
             ZStack {
-                ReaderPane(web: web).opacity(tab == "chats" ? 1 : 0)
-                if tab == "settings" { SettingsView(coach: coach, prefs: prefs, onKeepOnTop: onKeepOnTop) }
+                ReaderPane(web: web).opacity(reader.tab == "settings" ? 0 : 1)
+                if reader.tab == "settings" { SettingsView(coach: coach, prefs: prefs, onKeepOnTop: onKeepOnTop) }
             }
         }
         .frame(minWidth: 680, minHeight: 440)
