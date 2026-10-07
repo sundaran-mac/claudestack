@@ -40,7 +40,6 @@ let builtinCommands: [(String, String)] = [
 final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate {
     weak var web: WKWebView?
     let prefs: Prefs
-    var onWantKey: ((Bool) -> Void)?       // true: take the keyboard, false: give it back
     var onFocusTab: ((Session) -> Void)?
     var onSelect: (() -> Void)?
 
@@ -273,10 +272,6 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
             if let text = NSPasteboard.general.string(forType: .string) { js("CS.paste", text) }
         case "focusTab":
             if let row { onFocusTab?(row.s) }
-        case "wantKey":
-            onWantKey?(true)
-        case "blur":
-            onWantKey?(false)
         case "voice":
             if body["on"] as? Bool == true { voice.start() } else { voice.stop() }
         case "send":
@@ -371,9 +366,8 @@ func frontmatter(_ path: String) -> [String: String] {
 
 // MARK: - Web view
 
-/// A web view that takes the keyboard when clicked, inside a panel that normally never does.
+/// The reader's web view. A click that also brings the window forward still reaches the page.
 final class ReaderWebView: WKWebView {
-    override var needsPanelToBecomeKey: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 

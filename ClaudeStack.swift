@@ -144,18 +144,21 @@ final class Prefs: ObservableObject {
     @Published var compact: Bool { didSet { d.set(compact, forKey: "compact") } }
     @Published var reader: Bool { didSet { d.set(reader, forKey: "reader") } }
     var fontSize: Double { didSet { d.set(fontSize, forKey: "fontSize") } }
+    /// The reader floats above all apps instead of acting like a normal window.
+    @Published var keepOnTop: Bool { didSet { d.set(keepOnTop, forKey: "keepOnTop") } }
 
     /// Test modes pass their own store, so they never change the real settings.
     init(_ d: UserDefaults = .standard) {
         self.d = d
         d.register(defaults: ["soundOnNeeds": true, "bannerOnNeeds": true, "soundOnDone": false, "compact": false,
-                              "reader": false, "fontSize": 15.0])
+                              "reader": false, "fontSize": 15.0, "keepOnTop": false])
         soundOnNeeds = d.bool(forKey: "soundOnNeeds")
         bannerOnNeeds = d.bool(forKey: "bannerOnNeeds")
         soundOnDone = d.bool(forKey: "soundOnDone")
         compact = d.bool(forKey: "compact")
         reader = d.bool(forKey: "reader")
         fontSize = d.double(forKey: "fontSize")
+        keepOnTop = d.bool(forKey: "keepOnTop")
     }
 }
 

@@ -8,7 +8,7 @@ fail=0
 check() { # name, jq expression that must print true
   if [ "$(jq -r "$2" <<<"$out")" = "true" ]; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi
 }
-check "roles in order" '[.items[].role] == ["user","assistant","command","output","user","assistant","note","user","assistant","command","output","user","assistant"]'
+check "roles in order" '[.items[].role] == ["user","assistant","command","output","user","assistant","note","user","assistant","command","output","user","assistant","user","assistant"]'
 check "thinking is hidden" '[.items[].blocks[].text // empty] | map(test("secret")) | any | not'
 check "subagent lines are hidden" '[.items[].blocks[].text // empty] | map(test("SUBAGENT")) | any | not'
 check "meta caveat is hidden" '[.items[].blocks[].text // empty] | map(test("Caveat")) | any | not'
@@ -47,4 +47,27 @@ if [ "$(jq -r '.items | length' <<<"$sub")" = "0" ]; then echo "ok   main reader
 # Scrolling: a small scroll up must stay put while updates arrive; at the bottom, follow.
 sc=$("$BIN" --scroll-test fixture.jsonl scroll-test.js)
 if [ "$(jq -r '.movedWhileReading == 0 and .jumpButton and .gapAtEnd < 4' <<<"$sc")" = "true" ]; then echo "ok   scroll stays put while reading, follows at the bottom"; else echo "FAIL scroll: $sc"; fail=1; fi
+
+# Day coach: a simulated Wednesday (busy all day, a short pause at 11:40, lunch away) and a Saturday.
+sim=$("$BIN" --coach-sim)
+expect="10:30 water
+11:30 rest
+11:46 water
+12:47 water
+13:00 lunch"
+if [ "$(head -5 <<<"$sim")" = "$expect" ]; then echo "ok   coach: water, rest, cooldown and lunch at the right times"; else echo "FAIL coach morning:"; head -5 <<<"$sim"; fail=1; fi
+for want in "18:00 windDown" "18:30 dayDone" "18:45 overtime" "19:00 overtime" "saturday phase=off reminders=false"; do
+  if grep -qx "$want" <<<"$sim"; then echo "ok   coach: $want"; else echo "FAIL coach: $want missing"; fail=1; fi
+done
+# Time-check hook: silent before 6 PM, on weekends and for slash commands; speaks after 6 PM.
+# An empty HOME, so the hook uses the default hours and not the ones saved in Settings.
+th=$(mktemp -d)
+hk() { printf '%s' "{\"prompt\":\"$1\"}" | HOME=$th DAYHOOK_CLOCK=$2 DAYHOOK_WEEKDAY=$3 bash ../day-hook.sh | wc -l | tr -d ' '; }
+[ "$(hk "Add a page" 17:30 4)" = 0 ] && [ "$(hk "Add a page" 18:05 1)" = 0 ] && [ "$(hk "/context" 18:05 4)" = 0 ] \
+  && echo "ok   day hook silent before 6 PM, on Sunday, for slash commands" || { echo "FAIL day hook spoke when it should not"; fail=1; }
+printf '%s' '{"prompt":"Add a page"}' | HOME=$th DAYHOOK_CLOCK=18:05 DAYHOOK_WEEKDAY=4 bash ../day-hook.sh | grep -q "25 minutes are left" \
+  && echo "ok   day hook asks for a time check at 18:05" || { echo "FAIL day hook at 18:05"; fail=1; }
+printf '%s' '{"prompt":"Add a page"}' | HOME=$th DAYHOOK_CLOCK=18:50 DAYHOOK_WEEKDAY=4 bash ../day-hook.sh | grep -q "ended at 18:30, 20 minutes ago" \
+  && echo "ok   day hook says the day is over at 18:50" || { echo "FAIL day hook at 18:50"; fail=1; }
+rm -rf "$th"
 exit $fail

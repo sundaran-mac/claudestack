@@ -93,48 +93,18 @@ struct RowView: View {
     }
 }
 
-enum Edge: Int { case left, right, bottom, bottomLeft, bottomRight }
-
-/// An invisible strip on the window edge. Drag it to resize.
-struct ResizeHandle: View {
-    let edge: Edge
-    let onResize: (Edge, Bool) -> Void
-    var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .onHover { inside in
-                if inside {
-                    switch edge {
-                    case .left, .right: NSCursor.resizeLeftRight.push()
-                    case .bottom: NSCursor.resizeUpDown.push()
-                    default: NSCursor.crosshair.push()
-                    }
-                } else { NSCursor.pop() }
-            }
-            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { _ in onResize(edge, true) }
-                .onEnded { _ in onResize(edge, false) })
-    }
-}
-
 struct StackView: View {
     @ObservedObject var store: Store
     @ObservedObject var prefs: Prefs
     @ObservedObject var reader: ReaderModel
-    let web: ReaderWebView
+    @ObservedObject var coach: DayCoach
     let focuser: Focuser
     let onDrag: (DragGesture.Value?) -> Void
-    let onResize: (Edge, Bool) -> Void
     let onResetPosition: () -> Void
-    var onZoom: () -> Void = {}
+    /// Opens the reader window, on this session if one is given.
+    var onOpenReader: (String?) -> Void = { _ in }
 
     var body: some View {
-        if prefs.reader && !prefs.compact { readerBody } else { stackBody }
-    }
-
-    // MARK: Small stack
-
-    var stackBody: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             content(t: tl.date.timeIntervalSinceReferenceDate)
         }
@@ -153,9 +123,11 @@ struct StackView: View {
         return VStack(alignment: .leading, spacing: 6) {
             header(needCount: needCount, t: t)
             if !prefs.compact {
+                if coach.phase != "off" { DayStrip(coach: coach, compact: true) }
+                ReminderCard(coach: coach)
                 ForEach(store.rows) { r in
                     RowView(row: r, now: store.now, t: t, onTap: { focuser.focus(r.s) },
-                            onExpand: { reader.select(r.id); prefs.reader = true })
+                            onExpand: { onOpenReader(r.id) })
                 }
             }
         }
@@ -190,7 +162,13 @@ struct StackView: View {
                     Text("\(store.rows.count) session\(store.rows.count == 1 ? "" : "s")")
                         .font(.system(size: 11)).foregroundColor(muted)
                 }
-                iconButton("arrow.up.left.and.arrow.down.right", "Open the reader") { prefs.reader = true }
+                Button { onOpenReader(nil) } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 11, weight: .bold)).foregroundColor(muted)
+                        .frame(width: 22, height: 20)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(surface))
+                }
+                .buttonStyle(.plain)
+                .help("Open the reader")
             }
         }
         .padding(.horizontal, 4).padding(.vertical, 2)
@@ -199,119 +177,64 @@ struct StackView: View {
         .help("Drag to move. Double-click to shrink or grow.")
     }
 
-    func iconButton(_ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: 11, weight: .bold)).foregroundColor(muted)
-                .frame(width: 22, height: 20)
-                .background(RoundedRectangle(cornerRadius: 6).fill(surface))
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-
-    // MARK: Reader
-
-    var readerBody: some View {
-        VStack(spacing: 0) {
-            TimelineView(.animation(minimumInterval: 1.0 / 20)) { tl in
-                readerHeader(t: tl.date.timeIntervalSinceReferenceDate)
-            }
-            .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .global)
-                .onChanged { onDrag($0) }
-                .onEnded { _ in onDrag(nil) })
-            .contextMenu { menu }
-            Rectangle().fill(borderC).frame(height: 1)
-            HStack(spacing: 0) {
-                ScrollView {
-                    TimelineView(.animation(minimumInterval: 1.0 / 20)) { tl in
-                        VStack(spacing: 6) {
-                            ForEach(store.rows) { r in
-                                RowView(row: r, now: store.now, t: tl.date.timeIntervalSinceReferenceDate,
-                                        selected: r.id == reader.selectedId, onTap: { reader.select(r.id) })
-                            }
-                        }
-                        .padding(8)
-                    }
-                }
-                .frame(width: 290)
-                .contextMenu { menu }
-                Rectangle().fill(borderC).frame(width: 1)
-                ReaderPane(web: web)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(bg)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(borderC, lineWidth: 1))
-        .overlay(alignment: .trailing) { ResizeHandle(edge: .right, onResize: onResize).frame(width: 6).padding(.vertical, 14) }
-        .overlay(alignment: .leading) { ResizeHandle(edge: .left, onResize: onResize).frame(width: 6).padding(.vertical, 14) }
-        .overlay(alignment: .bottom) { ResizeHandle(edge: .bottom, onResize: onResize).frame(height: 6).padding(.horizontal, 14) }
-        .overlay(alignment: .bottomTrailing) { ResizeHandle(edge: .bottomRight, onResize: onResize).frame(width: 16, height: 16) }
-        .overlay(alignment: .bottomLeading) { ResizeHandle(edge: .bottomLeft, onResize: onResize).frame(width: 16, height: 16) }
-    }
-
-    func readerHeader(t: Double) -> some View {
-        let needCount = store.rows.filter { $0.display == .needs }.count
-        return HStack(spacing: 8) {
-            WindowButtons(onClose: { prefs.reader = false }, onMinimize: { prefs.reader = false }, onZoom: onZoom)
-                .padding(.trailing, 6)
-            Image(systemName: "square.stack.3d.up.fill").foregroundColor(Color(hex: 0xFF9A00))
-            Text("Claude Stack").font(.system(size: 13, weight: .bold)).foregroundColor(textC)
-            Spacer()
-            if needCount > 0 {
-                Text("\(needCount) need\(needCount == 1 ? "s" : "") you")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(Display.needs.color.opacity(0.4 + 0.6 * wave(t, hz: 1.6)))
-            }
-        }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: onZoom)
-        .help("Drag to move. Double-click to fill the screen. Drag an edge or a bottom corner to resize.")
-    }
-
     @ViewBuilder var menu: some View {
         Toggle("Sound when a tab needs you", isOn: $prefs.soundOnNeeds)
         Toggle("Mac banner when a tab needs you", isOn: $prefs.bannerOnNeeds)
         Toggle("Sound when a task is done", isOn: $prefs.soundOnDone)
         Divider()
-        Toggle("Reader", isOn: $prefs.reader)
+        Button("Open reader") { onOpenReader(nil) }
         Toggle("Compact (pill)", isOn: $prefs.compact)
-        Button("Reset position and size", action: onResetPosition)
+        Button("Reset position", action: onResetPosition)
         Divider()
         Button("Quit Claude Stack") { NSApp.terminate(nil) }
     }
 }
 
-/// The red, yellow and green buttons, as on every Mac window. Symbols show on hover.
-struct WindowButtons: View {
-    let onClose: () -> Void
-    let onMinimize: () -> Void
-    let onZoom: () -> Void
-    @State private var hover = false
+/// The reader window's content: sessions on the left, the chat page on the right.
+/// It lives in a normal Mac window, so the title bar, its three buttons and resizing are the system's.
+struct ReaderView: View {
+    @ObservedObject var store: Store
+    @ObservedObject var reader: ReaderModel
+    @ObservedObject var coach: DayCoach
+    @ObservedObject var prefs: Prefs
+    let web: ReaderWebView
+    var onKeepOnTop: () -> Void = {}
+    @State private var tab = "chats"
 
     var body: some View {
-        HStack(spacing: 8) {
-            dot(0xFF5F57, "xmark", "Close the reader (the small stack stays)", onClose)
-            dot(0xFEBC2E, "minus", "Shrink to the small stack", onMinimize)
-            dot(0x28C840, "arrow.up.left.and.arrow.down.right", "Fill the screen, or go back to the old size", onZoom)
-        }
-        .onHover { hover = $0 }
-    }
-
-    func dot(_ hex: UInt32, _ icon: String, _ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            ZStack {
-                Circle().fill(Color(hex: hex)).frame(width: 13, height: 13)
-                Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.5).frame(width: 13, height: 13)
-                if hover {
-                    Image(systemName: icon).font(.system(size: 7, weight: .heavy)).foregroundColor(Color.black.opacity(0.6))
+        HStack(spacing: 0) {
+            VStack(spacing: 8) {
+                Picker("", selection: $tab) {
+                    Text("Chats").tag("chats")
+                    Text("Settings").tag("settings")
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                .padding(.horizontal, 8).padding(.top, 8)
+                DayStrip(coach: coach).padding(.horizontal, 8)
+                ReminderCard(coach: coach).padding(.horizontal, 8)
+                ScrollView {
+                    TimelineView(.animation(minimumInterval: 1.0 / 20)) { tl in
+                        VStack(spacing: 6) {
+                            ForEach(store.rows) { r in
+                                RowView(row: r, now: store.now, t: tl.date.timeIntervalSinceReferenceDate,
+                                        selected: r.id == reader.selectedId,
+                                        onTap: { reader.select(r.id); tab = "chats" })
+                            }
+                        }
+                        .padding(.horizontal, 8).padding(.bottom, 8)
+                    }
                 }
             }
-            .frame(width: 16, height: 16)
-            .contentShape(Circle())
+            .frame(width: 300)
+            .animation(.easeInOut(duration: 0.3), value: coach.reminder)
+            Rectangle().fill(borderC).frame(width: 1)
+            // The web view stays alive under Settings, so the chat does not reload.
+            ZStack {
+                ReaderPane(web: web).opacity(tab == "chats" ? 1 : 0)
+                if tab == "settings" { SettingsView(coach: coach, prefs: prefs, onKeepOnTop: onKeepOnTop) }
+            }
         }
-        .buttonStyle(.plain)
-        .help(help)
+        .frame(minWidth: 680, minHeight: 440)
+        .background(bg)
     }
 }

@@ -27,16 +27,26 @@ Rows go away by themselves:
 
 ## The reader
 
-Click the expand button in the header (or the chat icon on a row) and the box grows into a
-reader: your sessions on the left, the selected chat on the right.
+Click the expand button in the header (or the chat icon on a row) to open the reader window:
+your sessions on the left, the selected chat on the right.
 
+- **Read:** headings, bold, real tables, coloured code. Each code block has a **Copy** button,
+  each answer has one too, and **Copy last** copies Claude's last answer. **A- / A+** changes
+  the text size. Tool calls are folded into "N steps"; click to see the command and its output.
+- **A normal Mac window:** the reader has the real red, yellow and green buttons. Green is true
+  full screen in its own space. While the reader is open the app shows in the Dock and Cmd+Tab,
+  and the small stack hides while the reader is in front. Closing the reader keeps the small
+  stack running. The Dock icon is drawn by `tools/make-icon.swift`.
+- **Keep on top:** the pin at the top right of the title bar (or Window, Keep on Top,
+  Cmd+Shift+T) makes the reader float above every app on every desktop, like the small stack.
+  Click it again for a normal window. The choice is remembered.
 - **Read:** headings, bold, real tables, coloured code. Each code block has a **Copy** button,
   each answer has one too, and **Copy last** copies Claude's last answer. **A- / A+** changes
   the text size. Tool calls are folded into "N steps"; click to see the command and its output.
 - **Window buttons** (top left, as on every Mac window): red closes the reader and keeps the
   small stack, yellow shrinks to the small stack, green fills the screen and a second click
   brings back the old size and place. Double-clicking the title bar does the same as green.
-- **Resize:** drag the left, right or bottom edge, or a bottom corner. Size and place are saved.
+- **Resize:** like any window. Size and place are saved.
 - **Send:** type in the box and press Enter (Shift+Enter for a new line). The text is pasted
   into the real Claude in that Ghostty tab, so every Claude Code feature works. "Sending to"
   names the target tab, and the app checks that tab before it sends.
@@ -53,12 +63,31 @@ reader: your sessions on the left, the selected chat on the right.
   an agent to read its own chat; "Back to main chat" returns. The small stack shows a
   "N agents" badge while agents work. (Workflow agents are not shown yet.)
 - **Stop:** sends Esc to the tab while Claude is working.
-- **Keyboard:** the box takes the keyboard only after you click inside the reader. Press Esc to
-  give it back.
 
 Limits: answers appear one message at a time, not word by word, because Claude Code saves whole
 messages. Sending works for Ghostty tabs only; other terminals and background chats are
 read-only.
+
+## The day coach
+
+Long days with Claude are easy to stretch too far. The coach watches your work time and nudges you.
+
+- **Day strip** (small stack and reader): work time, time left, and two rings that fill up to the
+  next water and rest reminder. Blue in the day, amber from the time-check hour, green at the end.
+- **Reminders**, one at a time, in calm colours (orange blinking stays for "Claude needs you"):
+  water every 60 minutes of work, rest after 120 minutes without a break, lunch, "30 minutes
+  left", "Day complete" with today's numbers, and a gentle note every 15 minutes if you keep
+  working after the day ends. Each has **Done** and **10 min later**. After you answer one, the
+  next water or rest waits at least 15 minutes.
+- **Work time** counts only while a Claude session is busy or you sent a prompt in the last
+  5 minutes. Five quiet minutes count as a break.
+- **End-of-day time check:** `day-hook.sh` (a `UserPromptSubmit` hook) adds a note to new prompts
+  after the time-check hour on workdays. Claude then answers first with a `timecheck` block, which
+  the reader shows as a card with a clock ring: fits, or does not fit, what to do now and what to
+  leave for tomorrow. If it does not fit, Claude asks before starting.
+- **Settings** tab in the reader: day start and end, time-check hour, lunch, workdays, water and
+  rest minutes, sounds, Day off. Saved to `~/.claude/stack/day.json`, which the hook also reads.
+- No reminders on weekends or when "Day off" is on.
 
 ## How it works
 
@@ -82,7 +111,10 @@ ClaudeStack.app (one floating box) <── reads every 0.5 s
   (`input text`, `send key`). `Voice.swift` is the hold-space speech input.
 - `PLAN.md` lists every situation the app handles, and why. `READER-PLAN.md` does the same for
   the reader.
-- `tests/run.sh` checks the chat parser against `tests/fixture.jsonl` (made-up content).
+- `DayCoach.swift` and `DayViews.swift` are the day coach. `stack-hook.sh` writes one line per
+  prompt, finished task and agent to `~/.claude/stack/days/<date>.jsonl` (gitignored).
+- `tests/run.sh` checks the chat parser against `tests/fixture.jsonl` (made-up content), the
+  agents, scrolling, a simulated workday for the coach, and the time-check hook.
 
 ## Requirements
 
@@ -98,7 +130,7 @@ ClaudeStack.app (one floating box) <── reads every 0.5 s
 
 ```sh
 git clone https://github.com/sundaran-mac/claudestack.git ~/.claude/stack
-chmod +x ~/.claude/stack/stack-hook.sh ~/.claude/stack/build.sh
+chmod +x ~/.claude/stack/stack-hook.sh ~/.claude/stack/day-hook.sh ~/.claude/stack/build.sh
 ```
 
 **2. Build the app.** This makes `~/Applications/ClaudeStack.app`.
@@ -121,6 +153,15 @@ jq '
 ```
 
 Run it once only. Running it twice adds the hook twice.
+
+**3b. Add the day coach's time check (optional).** One more `UserPromptSubmit` hook. Unlike
+`stack-hook.sh`, this one does print: after the time-check hour on workdays, its note reaches
+Claude with your prompt.
+
+```sh
+jq '.hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":"$HOME/.claude/stack/day-hook.sh","timeout":5}]}]' \
+  ~/.claude/settings.json > /tmp/claude-settings.json && mv /tmp/claude-settings.json ~/.claude/settings.json
+```
 
 **4. Start Claude.** Open a new tab and run `claude`. The box starts by itself on the first event.
 

@@ -1,31 +1,30 @@
-// The floating panel, its size and place, and the command-line test modes.
+// The floating small stack, the reader window, and the command-line test modes.
 import AppKit
 import Combine
 import SwiftUI
 import WebKit
 
 final class StackPanel: NSPanel {
-    /// Only the reader may take the keyboard, and only when you click inside it.
-    var allowKey = false
-    override var canBecomeKey: Bool { allowKey }
+    override var canBecomeKey: Bool { false }   // the small stack never takes the keyboard
     override var canBecomeMain: Bool { false }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var panel: StackPanel!
     var hosting: NSHostingView<StackView>!
+    var readerWindow: NSWindow?
     let prefs = Prefs()
     lazy var store = Store(prefs: prefs)
     lazy var reader = ReaderModel(prefs: prefs)
+    let coach = DayCoach()
+    var coachTimer: Timer?
     let focuser = Focuser()
     var web: ReaderWebView!
+    var pinButton: NSButton?
+    var pinMenuItem: NSMenuItem?
     var dragStartOrigin: NSPoint?
     var dragStartMouse: NSPoint?
-    var resizeStart: (frame: NSRect, mouse: NSPoint)?
     var observers: [Any] = []
-    var lastReader: Bool?
-
-    let minSize = NSSize(width: 640, height: 400)
 
     func applicationDidFinishLaunching(_ n: Notification) {
         panel = StackPanel(contentRect: NSRect(x: 0, y: 0, width: 336, height: 80),
@@ -40,14 +39,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.becomesKeyOnlyIfNeeded = true
 
         web = makeWebView(model: reader)
-        reader.onWantKey = { [weak self] want in self?.setKey(want) }
         reader.onFocusTab = { [weak self] s in self?.focuser.focus(s) }
 
-        let view = StackView(store: store, prefs: prefs, reader: reader, web: web, focuser: focuser,
+        let view = StackView(store: store, prefs: prefs, reader: reader, coach: coach, focuser: focuser,
                              onDrag: { [weak self] v in self?.drag(v) },
-                             onResize: { [weak self] e, active in self?.resize(e, active) },
                              onResetPosition: { [weak self] in self?.resetPosition() },
-                             onZoom: { [weak self] in self?.zoom() })
+                             onOpenReader: { [weak self] id in self?.openReader(id) })
         hosting = NSHostingView(rootView: view)
         panel.contentView = hosting
 
@@ -56,46 +53,188 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observers.append(prefs.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.layout() }
         })
+        // The small stack hides while you use the reader, and comes back when you switch apps.
+        let nc = NotificationCenter.default
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+            observers.append(nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.layout() })
+        }
+        // The day coach counts work time every 5 seconds. Busy: any session running or waiting for you.
+        coach.tick(busy: false)
+        coachTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.coach.tick(busy: self.store.rows.contains { $0.display == .running || $0.display == .needs })
+        }
+        observers.append(coach.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.layout() }
+        })
+        // The reader never opens by itself: the app starts on every Claude event.
+        prefs.reader = false
         reader.update(rows: store.rows)
         layout()
     }
 
-    var readerMode: Bool { prefs.reader && !prefs.compact }
+    /// The reader is in front: the app is active and its window is on screen (not in the Dock).
+    var readerInFront: Bool {
+        guard let w = readerWindow, w.isVisible, !w.isMiniaturized else { return false }
+        // A reader kept on top is always in front, so the small stack stays hidden while it is open.
+        return prefs.keepOnTop || NSApp.isActive
+    }
 
-    /// Small stack: size to content. Reader: the saved size. The top-left corner stays where the user put it.
+    /// The small stack sizes to its content. The top-left corner stays where the user put it.
     func layout() {
-        guard !store.rows.isEmpty else { panel.orderOut(nil); return }
+        guard !store.rows.isEmpty, !readerInFront else { panel.orderOut(nil); return }
         let topLeft = savedTopLeft() ?? defaultTopLeft()
-        var frame: NSRect
-        if readerMode {
-            let size = savedReaderSize()
-            frame = NSRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height)
-        } else {
-            let size = hosting.fittingSize
-            frame = NSRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height)
-        }
-        frame = clampToScreen(frame)
-        if lastReader != readerMode {
-            lastReader = readerMode
-            panel.allowKey = readerMode
-            if !readerMode, panel.isKeyWindow { setKey(false) }
-        }
+        let size = hosting.fittingSize
+        let frame = clampToScreen(NSRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height))
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    func setKey(_ want: Bool) {
-        if want {
-            guard panel.allowKey else { return }
-            panel.makeKey()
-        } else if panel.isKeyWindow {
-            panel.resignKey()
-            // Give the keyboard back to the app you were in (usually Ghostty).
-            if let app = NSWorkspace.shared.frontmostApplication, app != .current {
-                app.activate()
-            }
+    // MARK: - Reader window
+
+    func openReader(_ sessionId: String?) {
+        if let sessionId { reader.select(sessionId) }
+        if prefs.compact { prefs.compact = false }
+        let w = readerWindow ?? makeReaderWindow()
+        readerWindow = w
+        prefs.reader = true
+        // A normal app while the reader is open: Dock icon, Cmd+Tab, menu bar.
+        NSApp.setActivationPolicy(.regular)
+        if NSApp.mainMenu == nil { NSApp.mainMenu = makeMenu() }
+        if w.isMiniaturized { w.deminiaturize(nil) }
+        // The switch to a normal app takes effect on the next turn of the run loop, and macOS
+        // may refuse the first request to come forward. Ask then, and once more if needed.
+        DispatchQueue.main.async { self.bringForward(w, tries: 3) }
+    }
+
+    private func bringForward(_ w: NSWindow, tries: Int) {
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+        w.orderFrontRegardless()
+        layout()
+        guard tries > 1 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if !NSApp.isActive { self.bringForward(w, tries: tries - 1) }
         }
     }
+
+    private func makeReaderWindow() -> NSWindow {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 720),
+                         styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                         backing: .buffered, defer: false)
+        w.title = "Claude Stack"
+        w.appearance = NSAppearance(named: .darkAqua)
+        w.titlebarAppearsTransparent = true
+        w.backgroundColor = NSColor(red: 0x0F / 255, green: 0x19 / 255, blue: 0x23 / 255, alpha: 1)
+        w.isReleasedWhenClosed = false
+        w.minSize = NSSize(width: 680, height: 440)
+        w.contentView = NSHostingView(rootView: ReaderView(store: store, reader: reader, coach: coach, prefs: prefs, web: web,
+                                                           onKeepOnTop: { [weak self] in self?.toggleKeepOnTop(nil) }))
+        w.delegate = self
+        // Size and place are remembered by AppKit under this name.
+        if !w.setFrameUsingName("ClaudeStackReader") { w.center() }
+        w.setFrameAutosaveName("ClaudeStackReader")
+
+        // The pin at the top right of the title bar: keep on top, or a normal window.
+        let pin = NSButton(title: "", target: self, action: #selector(toggleKeepOnTop(_:)))
+        pin.bezelStyle = .accessoryBarAction
+        pin.isBordered = false
+        pin.frame = NSRect(x: 0, y: 0, width: 34, height: 22)
+        pinButton = pin
+        let acc = NSTitlebarAccessoryViewController()
+        acc.layoutAttribute = .trailing
+        acc.view = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 22))
+        pin.frame.origin = NSPoint(x: 0, y: 0)
+        acc.view.addSubview(pin)
+        w.addTitlebarAccessoryViewController(acc)
+        applyKeepOnTop(w)
+        return w
+    }
+
+    @objc func toggleKeepOnTop(_ sender: Any?) {
+        prefs.keepOnTop.toggle()
+        guard let w = readerWindow else { return }
+        // A floating window cannot stay in macOS full screen; leave it first, then float.
+        if prefs.keepOnTop, w.styleMask.contains(.fullScreen) {
+            pendingFloat = true
+            w.toggleFullScreen(nil)
+            return
+        }
+        applyKeepOnTop(w)
+    }
+    var pendingFloat = false
+
+    func windowDidExitFullScreen(_ n: Notification) {
+        guard pendingFloat, let w = readerWindow else { return }
+        pendingFloat = false
+        applyKeepOnTop(w)
+    }
+
+    /// ON: floats above every app, on every desktop. OFF: a normal window with macOS full screen.
+    func applyKeepOnTop(_ w: NSWindow) {
+        let on = prefs.keepOnTop
+        w.level = on ? .floating : .normal
+        w.collectionBehavior = on ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenPrimary, .managed]
+        if let pin = pinButton {
+            pin.image = NSImage(systemSymbolName: on ? "pin.fill" : "pin", accessibilityDescription: "Keep on top")
+            pin.contentTintColor = on ? NSColor(red: 1, green: 0x9A / 255, blue: 0, alpha: 1) : .secondaryLabelColor
+            pin.toolTip = on ? "Kept on top of all apps. Click for a normal window." : "Normal window. Click to keep it on top of all apps."
+        }
+        pinMenuItem?.state = on ? .on : .off
+        layout()
+    }
+
+    func windowWillClose(_ n: Notification) {
+        guard (n.object as? NSWindow) === readerWindow else { return }
+        prefs.reader = false
+        // Back to a background helper: no Dock icon, no menu bar.
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(.accessory)
+            self.layout()
+        }
+    }
+
+    func windowDidMiniaturize(_ n: Notification) { layout() }
+    func windowDidDeminiaturize(_ n: Notification) { layout() }
+
+    /// Clicking the Dock icon brings the reader back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        openReader(nil)
+        return false
+    }
+
+    /// App menu and Window menu only. There is no Edit menu on purpose: the page handles
+    /// Cmd+C, Cmd+V and the rest itself, and a menu would paste a second time.
+    private func makeMenu() -> NSMenu {
+        let main = NSMenu()
+        let appItem = NSMenuItem()
+        main.addItem(appItem)
+        let app = NSMenu()
+        app.addItem(withTitle: "Hide Claude Stack", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        app.addItem(.separator())
+        app.addItem(withTitle: "Quit Claude Stack", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = app
+
+        let winItem = NSMenuItem()
+        main.addItem(winItem)
+        let win = NSMenu(title: "Window")
+        win.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        win.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        let full = win.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        full.keyEquivalentModifierMask = [.command, .control]
+        let pin = win.addItem(withTitle: "Keep on Top", action: #selector(toggleKeepOnTop(_:)), keyEquivalent: "t")
+        pin.keyEquivalentModifierMask = [.command, .shift]
+        pin.target = self
+        pin.state = prefs.keepOnTop ? .on : .off
+        pinMenuItem = pin
+        win.addItem(.separator())
+        win.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        winItem.submenu = win
+        NSApp.windowsMenu = win
+        return main
+    }
+
+    // MARK: - Small stack position
 
     func drag(_ v: DragGesture.Value?) {
         let mouse = NSEvent.mouseLocation
@@ -110,65 +249,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setFrameOrigin(NSPoint(x: o.x + mouse.x - m.x, y: o.y + mouse.y - m.y))
     }
 
-    func resize(_ edge: Edge, _ active: Bool) {
-        let mouse = NSEvent.mouseLocation
-        guard active else {
-            resizeStart = nil
-            let f = panel.frame
-            UserDefaults.standard.set([f.minX, f.maxY], forKey: "topLeft")
-            UserDefaults.standard.set([f.width, f.height], forKey: "readerSize")
-            return
-        }
-        if resizeStart == nil { resizeStart = (panel.frame, mouse) }
-        guard let st = resizeStart else { return }
-        let dx = mouse.x - st.mouse.x, dy = mouse.y - st.mouse.y
-        let screen = (NSScreen.screens.first { $0.frame.contains(st.mouse) } ?? NSScreen.main)?.visibleFrame
-        var f = st.frame
-        if edge == .right || edge == .bottomRight { f.size.width = st.frame.width + dx }
-        if edge == .left || edge == .bottomLeft {
-            f.size.width = st.frame.width - dx
-        }
-        if edge == .bottom || edge == .bottomLeft || edge == .bottomRight { f.size.height = st.frame.height - dy }
-        f.size.width = max(minSize.width, min(f.size.width, screen?.width ?? 4000))
-        f.size.height = max(minSize.height, min(f.size.height, screen?.height ?? 4000))
-        // The top edge stays put. The left edge moves only when you drag it.
-        f.origin.y = st.frame.maxY - f.height
-        f.origin.x = (edge == .left || edge == .bottomLeft) ? st.frame.maxX - f.width : st.frame.minX
-        panel.setFrame(f, display: true)
-    }
-
-    /// Green button: fill the screen the window is on. Again: back to the old size and place.
-    func zoom() {
-        let d = UserDefaults.standard
-        let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: panel.frame.midX, y: panel.frame.midY)) } ?? NSScreen.main
-        guard let full = screen?.visibleFrame else { return }
-        if let a = d.array(forKey: "zoomRestore") as? [Double], a.count == 4, panel.frame == full {
-            let r = NSRect(x: a[0], y: a[1], width: a[2], height: a[3])
-            d.removeObject(forKey: "zoomRestore")
-            save(r)
-        } else {
-            let f = panel.frame
-            d.set([f.minX, f.minY, f.width, f.height], forKey: "zoomRestore")
-            save(full)
-        }
-        layout()
-    }
-
-    /// Stores a reader frame the way layout() reads it: top-left corner plus size.
-    func save(_ f: NSRect) {
-        UserDefaults.standard.set([f.minX, f.maxY], forKey: "topLeft")
-        UserDefaults.standard.set([f.width, f.height], forKey: "readerSize")
-    }
-
-    func savedReaderSize() -> NSSize {
-        let v = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
-        var s = NSSize(width: min(980, v.width - 40), height: min(700, v.height - 40))
-        if let a = UserDefaults.standard.array(forKey: "readerSize") as? [Double], a.count == 2 {
-            s = NSSize(width: a[0], height: a[1])
-        }
-        return NSSize(width: max(minSize.width, min(s.width, v.width)), height: max(minSize.height, min(s.height, v.height)))
-    }
-
     func savedTopLeft() -> NSPoint? {
         guard let a = UserDefaults.standard.array(forKey: "topLeft") as? [Double], a.count == 2 else { return nil }
         return NSPoint(x: a[0], y: a[1])
@@ -181,7 +261,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func resetPosition() {
         UserDefaults.standard.removeObject(forKey: "topLeft")
-        UserDefaults.standard.removeObject(forKey: "readerSize")
         layout()
     }
 
@@ -191,8 +270,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screen = screens.first { $0.visibleFrame.intersects(f) } ?? NSScreen.main
         guard let v = screen?.visibleFrame else { return f }
         var r = f
-        r.size.width = min(r.width, v.width)
-        r.size.height = min(r.height, v.height)
         r.origin.x = min(max(r.minX, v.minX), v.maxX - r.width)
         r.origin.y = min(max(r.minY, v.minY), v.maxY - r.height)
         return r
@@ -233,6 +310,13 @@ struct Main {
             MainActor.assumeIsolated { scrollTest(transcript: args[2], script: args[3]) }
             return
         }
+        // Test mode: draw the day strip and every reminder card into a PNG. Usage: ClaudeStack --coach-snapshot out.png
+        if args.count >= 3, args[1] == "--coach-snapshot" {
+            MainActor.assumeIsolated { coachSnapshot(to: args[2]) }
+            return
+        }
+        // Test mode: a simulated workday, printing each reminder as it appears. Usage: ClaudeStack --coach-sim
+        if args.count >= 2, args[1] == "--coach-sim" { coachSim(); return }
         // Test mode: draw the web reader for a transcript into a PNG.
         // Usage: ClaudeStack --reader-snapshot file.jsonl out.png [state.json]
         if args.count >= 4, args[1] == "--reader-snapshot" {
@@ -254,8 +338,8 @@ func snapshot(to path: String, compact: Bool) {
     prefs.compact = compact
     let store = Store(prefs: prefs)
     let model = ReaderModel(prefs: prefs)
-    let view = StackView(store: store, prefs: prefs, reader: model, web: ReaderWebView(), focuser: Focuser(),
-                         onDrag: { _ in }, onResize: { _, _ in }, onResetPosition: {})
+    let view = StackView(store: store, prefs: prefs, reader: model, coach: DayCoach(), focuser: Focuser(),
+                         onDrag: { _ in }, onResetPosition: {})
         .padding(20).background(Color(hex: 0x3A3F47))
     let r = ImageRenderer(content: view)
     r.scale = 2
@@ -358,4 +442,76 @@ func scrollTest(transcript: String, script: String) {
     }
     start(0)
     while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+}
+
+@MainActor
+func coachSnapshot(to path: String) {
+    func coach(_ r: Reminder?, phase: String = "working") -> DayCoach {
+        let c = DayCoach()
+        c.soundOn = false
+        c.phase = phase
+        c.dayFraction = phase == "windDown" ? 0.95 : 0.55
+        c.waterFraction = 0.7
+        c.restFraction = 0.4
+        c.minutesLeft = phase == "windDown" ? 25 : 250
+        c.summary = DaySummary(prompts: 42, tasksDone: 17, agents: 6, water: 5, breaks: 3, workSecs: 6.5 * 3600)
+        c.reminder = r
+        return c
+    }
+    let cases: [(Reminder, String)] = [(.water, "working"), (.rest, "working"), (.lunch, "working"),
+                                       (.windDown(minutesLeft: 25), "windDown"), (.dayDone, "done"), (.overtime(minutes: 30), "done")]
+    let view = HStack(alignment: .top, spacing: 16) {
+        ForEach(0..<2) { col in
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(cases.enumerated()).filter { $0.offset % 2 == col }, id: \.offset) { item in
+                    let c = coach(item.element.0, phase: item.element.1)
+                    VStack(spacing: 6) { DayStrip(coach: c); ReminderCard(coach: c) }
+                }
+            }
+            .frame(width: 300)
+        }
+    }
+    .padding(16).background(bg)
+    let r = ImageRenderer(content: view)
+    r.scale = 2
+    if let img = r.nsImage, let tiff = img.tiffRepresentation,
+       let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+        try? png.write(to: URL(fileURLWithPath: path))
+    }
+}
+
+/// Wednesday 2026-10-07, default hours. Busy all day except a 6-minute pause at 11:40 and lunch.
+/// Each reminder is answered one minute after it appears, as a person would.
+func coachSim() {
+    let store = UserDefaults(suiteName: "local.sundaran.claudestack.sim")!
+    store.removePersistentDomain(forName: "local.sundaran.claudestack.sim")
+    let c = DayCoach(store: store, useLog: false)
+    c.soundOn = false
+    c.config = DayConfig()
+    let cal = Calendar.current
+    var t = cal.date(from: DateComponents(year: 2026, month: 10, day: 7, hour: 9, minute: 30))!
+    let stop = cal.date(from: DateComponents(year: 2026, month: 10, day: 7, hour: 19, minute: 5))!
+    let f = DateFormatter(); f.dateFormat = "HH:mm"
+    var shownAt: Date?
+    var last: String?
+    while t < stop {
+        let m = cal.component(.hour, from: t) * 60 + cal.component(.minute, from: t)
+        let busy = !(m >= 11 * 60 + 40 && m < 11 * 60 + 46) && !(m >= 13 * 60 && m < 13 * 60 + 45)
+        c.tick(busy: busy, now: t)
+        // Print the kind only: "25 minutes left" counting down is the same card.
+        let name = c.reminder.map { String("\($0)".prefix { $0 != "(" }) }
+        if name != last, let name { print("\(f.string(from: t)) \(name)"); shownAt = t }
+        last = name
+        if let s = shownAt, c.reminder != nil, t.timeIntervalSince(s) >= 60 { c.done(); shownAt = nil; last = nil }
+        t = t.addingTimeInterval(5)
+    }
+    print("summary work=\(hm(c.summary.workSecs)) water=\(c.summary.water) breaks=\(c.summary.breaks) phase=\(c.phase)")
+    // Saturday: no reminders at all.
+    let sat = DayCoach(store: store, useLog: false)
+    sat.config = DayConfig()
+    sat.soundOn = false
+    var s = cal.date(from: DateComponents(year: 2026, month: 10, day: 10, hour: 9, minute: 30))!
+    var any = false
+    for _ in 0..<(4 * 720) { sat.tick(busy: true, now: s); if sat.reminder != nil { any = true }; s = s.addingTimeInterval(5) }
+    print("saturday phase=\(sat.phase) reminders=\(any)")
 }

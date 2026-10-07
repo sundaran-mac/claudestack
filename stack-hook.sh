@@ -16,6 +16,14 @@ eval "$(jq -r '@sh "event=\(.hook_event_name // "") sid=\(.session_id // "") cwd
 file="$DIR/$sid.json"
 now=$(date +%s)
 
+# Today's log for the day coach: one short line per prompt, finished task and agent.
+logday() { mkdir -p "$HOME/.claude/stack/days"; printf '{"t":%s,"e":"%s","sid":"%s"}\n' "$now" "$1" "$sid" >> "$HOME/.claude/stack/days/$(date +%F).jsonl"; }
+case "$event" in
+  UserPromptSubmit) logday prompt ;;
+  Stop) logday stop ;;
+  PreToolUse) case "$tool" in Agent|Task) logday agent ;; esac ;;
+esac
+
 if [ "$event" = "SessionEnd" ]; then
   rm -f "$file"
   exit 0

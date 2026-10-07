@@ -3,3 +3,5 @@ sessions/
 *.tmp.*
 *.bak
 .DS_Store
+days/
+day.json

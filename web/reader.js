@@ -23,6 +23,11 @@ marked.use({
         cards.push(token.text);
         return `<div class="msgcard" data-card="${cards.length - 1}"></div>`;
       }
+      // A ```timecheck block is the day coach's answer: does this task fit before the day ends?
+      if (lang === "timecheck") {
+        const card = timecheckCard(token.text);
+        if (card) return card;
+      }
       let body;
       try {
         if (lang && hljs.getLanguage(lang)) body = hljs.highlight(token.text, { language: lang }).value;
@@ -45,6 +50,26 @@ marked.use({
 });
 
 let cards = [];
+
+function timecheckCard(text) {
+  let t;
+  try { t = JSON.parse(text); } catch (e) { return null; }
+  const need = Math.max(1, +t.minutes || 0), left = Math.max(0, +t.left || 0);
+  const fits = !!t.fits;
+  // The ring shows the estimate as a share of the time left (full ring = all of it, or more).
+  const share = left ? Math.min(1, need / left) : 1;
+  const r = 26, len = 2 * Math.PI * r;
+  const title = fits
+    ? `Fits: about ${need} min of the ${left} min left`
+    : left ? `Does not fit: needs about ${need} min, ${left} min left` : `Your day is over: this needs about ${need} min`;
+  const row = (k, v) => v ? `<div class="tc-row"><span class="tc-k">${k}</span><span>${esc(v)}</span></div>` : "";
+  return `<div class="timecheck ${fits ? "fits" : "nofit"}">` +
+    `<svg class="tc-ring" viewBox="0 0 64 64"><circle class="tc-bg" cx="32" cy="32" r="${r}"/>` +
+    `<circle class="tc-fg" cx="32" cy="32" r="${r}" style="--len:${len.toFixed(1)};--off:${(len * (1 - share)).toFixed(1)}"/>` +
+    `<text x="32" y="36" text-anchor="middle">${need}m</text></svg>` +
+    `<div class="tc-body"><div class="tc-label">End-of-day time check</div><div class="tc-title">${esc(title)}</div>` +
+    row("Now", t.now) + row("Tomorrow", t.later) + `</div></div>`;
+}
 
 function copyButton(kind, label) {
   const b = document.createElement("button");
@@ -545,6 +570,8 @@ function autosize() {
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 220) + "px";
 }
+// The page can load before its window has a width, which makes the box measure far too tall.
+window.addEventListener("resize", autosize);
 
 function insertText(t) {
   const s = input.selectionStart, e = input.selectionEnd;
@@ -653,7 +680,7 @@ input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.preventDefault(); return closeSlash(); }
   }
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); return send(); }
-  if (e.key === "Escape") { e.preventDefault(); input.blur(); post({ type: "blur" }); }
+  if (e.key === "Escape") { e.preventDefault(); input.blur(); }
 });
 input.addEventListener("keyup", (e) => {
   if (e.key !== " ") return;
@@ -662,14 +689,10 @@ input.addEventListener("keyup", (e) => {
 });
 input.addEventListener("blur", () => { flushSpace(); stopVoice(); });
 input.addEventListener("input", () => { drafts[sid] = input.value; autosize(); updateSlash(); });
-$("composer").addEventListener("mousedown", () => post({ type: "wantKey" }));
 
 // The panel has no Edit menu, so the usual shortcuts are handled here.
 document.addEventListener("keydown", (e) => {
-  if (!e.metaKey || e.ctrlKey || e.altKey) {
-    if (e.key === "Escape" && document.activeElement !== input) post({ type: "blur" });
-    return;
-  }
+  if (!e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   const inInput = document.activeElement === input;
   if (k === "c" || k === "x") {
