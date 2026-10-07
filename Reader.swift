@@ -119,7 +119,7 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
             let all = view.items
             let slice = all.suffix(limit)
             let items: [String: Any] = ["items": slice.map { $0.json }, "hasMore": all.count > slice.count]
-            let agents = sc.list(main: main.agents, now: Date().timeIntervalSince1970)
+            let agents = sc.list(main: main.agents, finished: main.finishedTasks, now: Date().timeIntervalSince1970)
             let ask: [String: Any]? = main.openAsk.map { ["tool": $0.name, "id": $0.id, "input": $0.input] }
             DispatchQueue.main.async {
                 self.busy = false

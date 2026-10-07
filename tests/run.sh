@@ -34,6 +34,9 @@ acheck "background agent done after its notice" "$(st bbb done)"
 acheck "background agent without notice is running" "$(st ccc running)"
 touch agents/main/subagents/agent-eee.jsonl
 acheck "agent done by a queued notice" "$(st eee done)"
+touch agents/main/subagents/agent-fff.jsonl agents/main/subagents/agent-ggg.jsonl
+acheck "agent done by a notice that names only its task id" "$(st fff done)"
+acheck "agent done by its hand-back message" "$(st ggg done)"
 acheck "quiet nested agent counts as done" "$(st ddd done)"
 acheck "running agents come first" '.[0].id == "ccc"'
 acheck "current step of a running agent" '(.[] | select(.id == "ccc")) | .tool == "Edit" and .detail == "/repo/c.ts" and .steps == 3'
@@ -43,6 +46,8 @@ acheck "nested agent knows who started it" '(.[] | select(.id == "ddd")) | .pare
 acheck "agents started by the lead have no parent" '(.[] | select(.id == "aaa")) | .parent == ""'
 main=$("$BIN" --parse agents/main.jsonl)
 if [ "$(jq -r '[.items[] | select(.role == "note") | .blocks[0].text] | map(select(test("Finished: Agent"))) | length == 2' <<<"$main")" = "true" ]; then echo "ok   finished notice shown as a note"; else echo "FAIL finished notice shown as a note"; fail=1; fi
+if [ "$(jq -r '[.items[] | select(.role == "note") | .blocks[0].text] | any(test("handed back"))' <<<"$main")" = "true" ]; then echo "ok   hand-back shown as a short note"; else echo "FAIL hand-back note"; fail=1; fi
+if [ "$(jq -r '[.items[] | select(.role == "user") | .blocks[0].text] | any(test("Please fix the ring animation"))' <<<"$main")" = "true" ]; then echo "ok   your words stay when a hand-back is attached"; else echo "FAIL your words were hidden"; fail=1; fi
 sub=$("$BIN" --parse agents/main/subagents/agent-aaa.jsonl)
 if [ "$(jq -r '.items | length' <<<"$sub")" = "0" ]; then echo "ok   main reader hides agent lines"; else echo "FAIL main reader hides agent lines"; fail=1; fi
 

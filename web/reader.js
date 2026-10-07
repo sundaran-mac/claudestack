@@ -440,6 +440,8 @@ $("font-up").onclick = () => setFont(1);
 // ---------- Agents ----------
 let agents = [], viewAgent = "", showDone = false, agentsOpen = true, agentsKey = "";
 let mode = "chats", mapKey = "";
+// Timeline range: "recent" shows the last 30 minutes, so a long chat does not squeeze new agents into dots.
+let tlRange = "recent";
 const AGENT_LABEL = { running: "Running", stuck: "Maybe stuck", done: "Done", failed: "Failed", stopped: "Stopped" };
 
 function dur(s) {
@@ -567,18 +569,27 @@ function drawMap() {
   const fit = Math.max(1, Math.floor(($("am-mapwrap").clientWidth - 24) / 234));
   $("am-map").classList.toggle("vertical", (kids[""] || []).length > fit);
 
-  // Timeline: one bar per agent, oldest first.
-  const span = Math.max(1, t1 - t0);
-  const pct = (t) => ((t - t0) / span) * 100;
+  // Timeline: one bar per agent, oldest first. "Recent" zooms to the agents active in the last
+  // 30 minutes: the axis starts at the first of them, so short agents still get wide bars.
+  const recentStarts = agents.filter((a) => a.end >= t1 - 1800).map((a) => a.start);
+  const w0 = tlRange === "recent" && recentStarts.length ? Math.max(t0, Math.min(...recentStarts)) : t0;
+  const span = Math.max(1, t1 - w0);
+  const pct = (t) => Math.max(0, Math.min(100, ((t - w0) / span) * 100));
   // Seconds too when the whole span is short, or every label reads the same minute.
   const clock = (t) => new Date(t * 1000).toTimeString().slice(0, span < 600 ? 8 : 5);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => `<span data-style="left:${f * 100}%">${clock(t0 + f * span)}</span>`).join("");
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => `<span data-style="left:${f * 100}%">${clock(w0 + f * span)}</span>`).join("");
+  const older = agents.filter((a) => a.end < w0).length;
+  const rangeBtn = (r, label) => `<button class="tl-btn${tlRange === r ? " on" : ""}" data-range="${r}">${label}</button>`;
+  const rangeBar = `<div class="tl-range">${rangeBtn("recent", "Recent")}${rangeBtn("all", "All")}` +
+    (older ? `<span class="tl-note">${older} older agent${older === 1 ? "" : "s"} shown at the left edge</span>` : "") + `</div>`;
   const rows = [...agents].sort((x, y) => x.start - y.start).map((a) =>
     `<div class="tl-row" data-agent="${esc(a.id)}" data-label="${esc(a.desc)}" title="${esc(a.desc)}">` +
     `<div class="tl-label"><span class="ac-type ${TYPE_CLASS(a.type)}">${esc(a.type)}</span><span class="tl-desc">${esc(a.desc)}</span></div>` +
-    `<div class="tl-track"><div class="tl-bar st-${esc(a.status)}" data-style="left:${pct(a.start).toFixed(2)}%;width:${Math.max(0.8, pct(a.end) - pct(a.start)).toFixed(2)}%"></div></div>` +
+    `<div class="tl-track">${a.end < w0
+      ? `<div class="tl-bar older" title="Ended before this range"></div>`
+      : `<div class="tl-bar st-${esc(a.status)}" data-style="left:${pct(a.start).toFixed(2)}%;width:${Math.max(0.8, pct(a.end) - pct(a.start)).toFixed(2)}%"></div>`}</div>` +
     `<div class="tl-dur" data-time="${esc(a.id)}">${dur(a.secs)}</div></div>`).join("");
-  $("am-timeline").innerHTML = `<div class="tl-axis"><div></div><div class="tl-ticks">${ticks}</div><div></div></div>${rows}`;
+  $("am-timeline").innerHTML = rangeBar + `<div class="tl-axis"><div></div><div class="tl-ticks">${ticks}</div><div></div></div>${rows}`;
   requestAnimationFrame(drawEdges);
   // Again once fonts and sizes have settled, in case the first draw came too early.
   setTimeout(drawEdges, 120);
@@ -631,6 +642,8 @@ window.addEventListener("resize", () => { if (mode === "agents") requestAnimatio
 
 // mousedown, not click: the bar is redrawn every half second while agents run.
 document.addEventListener("mousedown", (e) => {
+  const rb = e.target.closest("[data-range]");
+  if (rb) { e.preventDefault(); tlRange = rb.dataset.range; mapKey = ""; return drawMap(); }
   if (e.target.closest("[data-openmap]")) { e.preventDefault(); return post({ type: "tab", tab: "agents" }); }
   const t = e.target.closest("[data-toggle]");
   if (t) { agentsOpen = !agentsOpen; return drawAgents(); }
@@ -736,6 +749,8 @@ function answer(keys, box) {
 function autosize() {
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 220) + "px";
+  // Every change to the box goes through here, so the Copy button follows the text.
+  $("copy-input").disabled = !input.value.trim();
 }
 // The page can load before its window has a width, which makes the box measure far too tall.
 window.addEventListener("resize", autosize);
@@ -768,6 +783,18 @@ function send() {
   post({ type: "send", text, sid });
 }
 $("send").onclick = send;
+// Cut: the whole text goes to the clipboard and the box is emptied, ready to paste anywhere.
+$("copy-input").onclick = () => {
+  const text = input.value;
+  if (!text.trim()) return;
+  post({ type: "copy", text });
+  input.value = "";
+  drafts[sid] = "";
+  autosize();
+  closeSlash();
+  toast("Cut to the clipboard", true);
+  input.focus();
+};
 $("stop").onclick = () => post({ type: "keys", keys: ["escape"], sid });
 
 // Slash command list

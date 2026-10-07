@@ -275,10 +275,10 @@ struct SettingsView: View {
                     }
                 }
 
-                section("Reminders", "Counted in work time: only while Claude is busy or you sent a prompt in the last 5 minutes.") {
+                section("Reminders", "Counted in work time: while you use the keyboard or mouse. Five minutes with no input is a break.") {
                     stepRow("Water every", $c.waterMinutes, range: 15...180, step: 15)
                     stepRow("Rest after", $c.restMinutes, range: 30...240, step: 15,
-                            note: "Five quiet minutes count as a break and start this again.")
+                            note: "Five minutes away from the keyboard and mouse count as a break and start this again.")
                     Toggle("Soft sound when a reminder comes", isOn: Binding(get: { coach.soundOn }, set: { coach.soundOn = $0; UserDefaults.standard.set($0, forKey: "coachSound") }))
                     Toggle("Day off today (no reminders, no time check)", isOn: Binding(get: { coach.dayOff }, set: { coach.dayOff = $0 }))
                 }
@@ -307,6 +307,7 @@ struct SettingsView: View {
             .padding(24)
             .frame(maxWidth: 640, alignment: .leading)
             .toggleStyle(.switch)
+            .controlSize(.mini)   // the small switches macOS uses in its own settings
             .tint(calmBlue)
         }
         .scrollIndicators(.never)   // .hidden loses to "Always show scroll bars" in System Settings

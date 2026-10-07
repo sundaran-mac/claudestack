@@ -401,3 +401,14 @@ pre.plain {
 .am-map.vertical .tkids, .am-map.vertical .root > .tkids { flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 10px 0 0 40px; row-gap: 10px; }
 .am-map.vertical .acard { width: min(560px, 70vw); }
 .am-map.vertical .acard .ac-desc { display: inline; }
+
+/* Timeline range buttons */
+.tl-range { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; }
+.tl-btn { background: transparent; border: 1px solid var(--line); color: var(--soft); border-radius: 20px; padding: 2px 12px; font-size: 11.5px; font-weight: 700; }
+.tl-btn.on { background: var(--blue); border-color: var(--blue); color: white; }
+.tl-note { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
+.tl-bar.older { left: 0; width: 6px; background: var(--muted); opacity: .6; }
+
+/* Cut button in the message box */
+.btn.ghost:disabled { opacity: .4; cursor: default; border-color: var(--line); color: var(--muted); }
+#copy-input:not(:disabled):hover { border-color: var(--blue); color: var(--text); }

@@ -85,8 +85,8 @@ Long days with Claude are easy to stretch too far. The coach watches your work t
   left", "Day complete" with today's numbers, and a gentle note every 15 minutes if you keep
   working after the day ends. Each has **Done** and **10 min later**. After you answer one, the
   next water or rest waits at least 15 minutes.
-- **Work time** counts only while a Claude session is busy or you sent a prompt in the last
-  5 minutes. Five quiet minutes count as a break.
+- **Work time** counts while you use the Mac: any keyboard or mouse input in the last 5 minutes
+  (macOS reports this without any permission). Five minutes with no input count as a break.
 - **End-of-day time check:** `day-hook.sh` (a `UserPromptSubmit` hook) adds a note to new prompts
   after the time-check hour on workdays. Claude then answers first with a `timecheck` block, which
   the reader shows as a card with a clock ring: fits, or does not fit, what to do now and what to

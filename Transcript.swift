@@ -33,6 +33,8 @@ final class TranscriptReader {
     let keepSidechain: Bool
     /// tool_use id of each Agent call -> its run.
     private(set) var agents: [String: AgentRun] = [:]
+    /// Agent id (the agent-<id>.jsonl name) -> how it ended. Later notices and hand-backs name only this id.
+    private(set) var finishedTasks: [String: String] = [:]
     private(set) var items: [ChatItem] = []
     private var offset: UInt64 = 0
     private var leftover = Data()
@@ -67,7 +69,7 @@ final class TranscriptReader {
     }
 
     private func reset() {
-        items = []; offset = 0; leftover = Data(); toolAt = [:]; openAsk = nil; agents = [:]
+        items = []; offset = 0; leftover = Data(); toolAt = [:]; openAsk = nil; agents = [:]; finishedTasks = [:]
     }
 
     // MARK: - One line
@@ -79,9 +81,9 @@ final class TranscriptReader {
         let time = o["timestamp"] as? String
         // A notice that arrives while Claude is busy is queued first. Both lines carry it;
         // the queue line only updates the status, the attachment line also shows the note.
-        if type == "queue-operation", o["operation"] as? String == "enqueue",
-           let c = o["content"] as? String, c.contains("<task-notification>") {
-            markFinished(c)
+        if type == "queue-operation", o["operation"] as? String == "enqueue", let c = o["content"] as? String {
+            if c.contains("<task-notification>") { markFinished(c) }
+            if let from = handBackFrom(c) { finishedTasks[from] = finishedTasks[from] ?? "done" }
             return false
         }
         if type == "attachment", let att = o["attachment"] as? [String: Any],
@@ -103,6 +105,15 @@ final class TranscriptReader {
         // "A background task finished" arrives as a user line, sometimes marked meta.
         if type == "user", let n = notificationText(o), n.contains("<task-notification>") {
             return notification(n, uuid, time)
+        }
+        // An agent handing back its report: it is done. When the line is only that hand-back, show a
+        // short note instead of the whole report. When your own words share the line, keep them.
+        if type == "user", let n = notificationText(o), let from = handBackFrom(n) {
+            finishedTasks[from] = finishedTasks[from] ?? "done"
+            let t = n.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.hasPrefix("Another Claude session sent a message") || t.hasPrefix("<agent-message") {
+                return note(uuid, time, "An agent handed back its report.")
+            }
         }
         if o["isMeta"] as? Bool == true { return false }
         guard let msg = o["message"] as? [String: Any] else { return false }
@@ -169,9 +180,16 @@ final class TranscriptReader {
             let clean = stripAnsi(out).trimmingCharacters(in: .whitespacesAndNewlines)
             return clean.isEmpty ? false : simple(id, "output", time, clean)
         }
-        if s.hasPrefix("<local-command-caveat>") || s.hasPrefix("<system-reminder>") { return false }
-        if s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
-        return simple(id, "user", time, s)
+        if s.hasPrefix("<local-command-caveat>") { return false }
+        // Claude Code can attach reminders to your message. Show your words, not the reminders.
+        var text = s
+        while let r1 = text.range(of: "<system-reminder>"),
+              let r2 = text.range(of: "</system-reminder>", range: r1.upperBound..<text.endIndex) {
+            text.removeSubrange(r1.lowerBound..<r2.upperBound)
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return false }
+        return simple(id, "user", time, text)
     }
 
     private func addAssistant(_ msg: [String: Any], _ id: String, _ time: String?) -> Bool {
@@ -246,8 +264,16 @@ final class TranscriptReader {
     }
 
     /// Marks the agent (or background command) as finished and shows a small note.
+    /// "<agent-message from=\"ID\">" with "[Subagent hand-back]": the id of the agent that finished.
+    private func handBackFrom(_ s: String) -> String? {
+        guard s.contains("[Subagent hand-back]"), let id = between(s, "<agent-message from=\"", "\"") else { return nil }
+        return id
+    }
+
     private func markFinished(_ s: String) {
         let status = between(s, "<status>", "</status>") ?? ""
+        let ended = status == "completed" ? "done" : (status == "failed" ? "failed" : "stopped")
+        if let task = between(s, "<task-id>", "</task-id>") { finishedTasks[task] = ended }
         if let tid = between(s, "<tool-use-id>", "</tool-use-id>"), var run = agents[tid] {
             run.status = status == "completed" ? "done" : (status == "failed" ? "failed" : "stopped")
             agents[tid] = run

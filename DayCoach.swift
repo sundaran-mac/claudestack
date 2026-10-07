@@ -1,7 +1,15 @@
 // The day coach: work time, water and rest reminders, lunch, the end of the day, and today's numbers.
-// Work time counts only while Claude is busy or you sent a prompt in the last 5 minutes.
+// Work time counts while you use the Mac: any keyboard or mouse input in the last 5 minutes.
+// Five minutes with no input is a break. This measures you, not Claude, so reading or thinking
+// while Claude waits still counts as work, and a finished Claude no longer looks like a break.
 import AppKit
+import CoreGraphics
 import Foundation
+
+/// Seconds since the last keyboard or mouse input anywhere on the Mac. Needs no permission.
+func userIdleSeconds() -> Double {
+    CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+}
 
 let stackDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/stack")
 let dayConfigURL = stackDir.appendingPathComponent("day.json")
@@ -105,23 +113,24 @@ final class DayCoach: ObservableObject {
         tick(busy: false)
     }
 
-    /// `busy` is true while any Claude session is running or waiting for you.
-    func tick(busy: Bool, now: Date = Date()) {
+    /// `idle`: seconds since your last keyboard or mouse input. `busy` is kept for the caller's
+    /// sake and no longer decides work time.
+    func tick(busy: Bool, idle: Double? = nil, now: Date = Date()) {
+        let idle = idle ?? userIdleSeconds()
         let today = Self.dayString(now)
         if today != day { day = today; reminder = nil; snoozedUntil = nil; idleSince = nil; answeredAt = nil }
         let dt = lastTick.map { max(0, min(now.timeIntervalSince($0), 30)) } ?? 0   // the Mac may have slept
         lastTick = now
 
         let log = useLog ? readLog(today) : Log()
-        let recentPrompt = log.lastPrompt.map { now.timeIntervalSince1970 - $0 < 300 } ?? false
-        let active = busy || recentPrompt
+        let active = idle < 300
         if active {
             workSecs += dt
             idleSince = nil
-        } else {
-            if idleSince == nil { idleSince = now }
-            // Five quiet minutes count as a break: the rest counter starts again.
-            if let s = idleSince, now.timeIntervalSince(s) >= 300, workSecs - restAt > 60 {
+        } else if idleSince == nil {
+            // Five minutes with no keyboard or mouse: you stepped away. That is a break, once.
+            idleSince = now
+            if workSecs - restAt > 60 {
                 restAt = workSecs
                 bump("breaks")
             }

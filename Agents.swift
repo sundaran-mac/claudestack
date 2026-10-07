@@ -66,7 +66,7 @@ final class AgentScanner {
     func path(of id: String) -> String { "\(dir)/agent-\(id).jsonl" }
 
     /// Every agent of the session, running ones first. Runs on the parse queue.
-    func list(main: [String: AgentRun], now: Double) -> [[String: Any]] {
+    func list(main: [String: AgentRun], finished: [String: String] = [:], now: Double) -> [[String: Any]] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
         var out: [[String: Any]] = []
@@ -89,6 +89,9 @@ final class AgentScanner {
             var status: String
             if let run, run.status != "running" {
                 status = run.status
+            } else if let ended = finished[id] {
+                // A later notice or a hand-back named this agent by its own id.
+                status = ended
             } else if run != nil {
                 status = age > stuckAfter ? "stuck" : "running"
             } else {

@@ -303,7 +303,7 @@ struct Main {
         if args.count >= 3, args[1] == "--agents" {
             let r = TranscriptReader(path: args[2])
             r.readNew()
-            let list = AgentScanner(transcript: args[2]).list(main: r.agents, now: Date().timeIntervalSince1970)
+            let list = AgentScanner(transcript: args[2]).list(main: r.agents, finished: r.finishedTasks, now: Date().timeIntervalSince1970)
             let data = (try? JSONSerialization.data(withJSONObject: list, options: [.prettyPrinted, .sortedKeys])) ?? Data()
             FileHandle.standardOutput.write(data)
             return
@@ -386,7 +386,7 @@ func readerSnapshot(transcript: String, out: String, state: String?) {
     let r = TranscriptReader(path: transcript)
     r.readNew()
     let items = r.items.map { $0.json }
-    let agents = AgentScanner(transcript: transcript).list(main: r.agents, now: Date().timeIntervalSince1970)
+    let agents = AgentScanner(transcript: transcript).list(main: r.agents, finished: r.finishedTasks, now: Date().timeIntervalSince1970)
     var st: [String: Any] = ["sid": "test", "project": "test-project", "branch": "main", "display": "Done",
                              "color": "#06C27A", "running": false, "tool": "", "detail": "", "canSend": true,
                              "block": "", "fontSize": 15]
@@ -412,7 +412,7 @@ func readerSnapshot(transcript: String, out: String, state: String?) {
     func waitLoad(_ n: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             if w.isLoading && n < 50 { return waitLoad(n + 1) }
-            let js = "CS.reset({sid:'test'}); CS.setItems(\(json(["sid": "test", "items": items, "hasMore": false]))); CS.setState(\(json(st))); CS.setAgents(\(json(["sid": "test", "agents": agents]))); CS.mode(\(json(st["mode"] ?? "chats"))); document.title"
+            let js = "CS.reset({sid:'test'}); CS.setItems(\(json(["sid": "test", "items": items, "hasMore": false]))); CS.setState(\(json(st))); CS.setAgents(\(json(["sid": "test", "agents": agents]))); CS.mode(\(json(st["mode"] ?? "chats"))); var av = document.getElementById('agentsview'); av.scrollTop = av.scrollHeight; \(st["js"] as? String ?? ""); document.title"
             w.evaluateJavaScript(js) { _, err in
                 if let err { FileHandle.standardError.write("JS error: \(err)\n".data(using: .utf8)!) }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -527,8 +527,10 @@ func coachSim() {
     var last: String?
     while t < stop {
         let m = cal.component(.hour, from: t) * 60 + cal.component(.minute, from: t)
-        let busy = !(m >= 11 * 60 + 40 && m < 11 * 60 + 46) && !(m >= 13 * 60 && m < 13 * 60 + 45)
-        c.tick(busy: busy, now: t)
+        // At the desk all day, except a 6-minute pause at 11:40 and lunch away from the Mac.
+        let away = (m >= 11 * 60 + 40 && m < 11 * 60 + 46) || (m >= 13 * 60 && m < 13 * 60 + 45)
+        let awaySince = m >= 13 * 60 ? 13 * 60 : 11 * 60 + 40
+        c.tick(busy: !away, idle: away ? Double(m - awaySince) * 60 + 1 : 2, now: t)
         // Print the kind only: "25 minutes left" counting down is the same card.
         let name = c.reminder.map { String("\($0)".prefix { $0 != "(" }) }
         if name != last, let name { print("\(f.string(from: t)) \(name)"); shownAt = t }
@@ -543,6 +545,6 @@ func coachSim() {
     sat.soundOn = false
     var s = cal.date(from: DateComponents(year: 2026, month: 10, day: 10, hour: 9, minute: 30))!
     var any = false
-    for _ in 0..<(4 * 720) { sat.tick(busy: true, now: s); if sat.reminder != nil { any = true }; s = s.addingTimeInterval(5) }
+    for _ in 0..<(4 * 720) { sat.tick(busy: true, idle: 2, now: s); if sat.reminder != nil { any = true }; s = s.addingTimeInterval(5) }
     print("saturday phase=\(sat.phase) reminders=\(any)")
 }
