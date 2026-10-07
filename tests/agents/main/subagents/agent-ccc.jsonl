@@ -1,0 +1,3 @@
+{"type": "user", "isSidechain": true, "uuid": "user2026-10-07T06:00:02.000Z", "timestamp": "2026-10-07T06:00:02.000Z", "message": {"role": "user", "content": "Build story C"}}
+{"type": "assistant", "isSidechain": true, "uuid": "assistant2026-10-07T06:00:09.000Z", "timestamp": "2026-10-07T06:00:09.000Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "y1", "name": "Bash", "input": {"command": "npm run test -w apps/api"}}]}}
+{"type": "assistant", "isSidechain": true, "uuid": "assistant2026-10-07T06:00:19.000Z", "timestamp": "2026-10-07T06:00:19.000Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "y2", "name": "Edit", "input": {"file_path": "/repo/c.ts"}}]}}

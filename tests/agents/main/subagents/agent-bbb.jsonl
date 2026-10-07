@@ -1,0 +1,2 @@
+{"type": "user", "isSidechain": true, "uuid": "user2026-10-07T06:00:02.000Z", "timestamp": "2026-10-07T06:00:02.000Z", "message": {"role": "user", "content": "Plan story B"}}
+{"type": "assistant", "isSidechain": true, "uuid": "assistant2026-10-07T06:04:00.000Z", "timestamp": "2026-10-07T06:04:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Plan B done."}]}}

@@ -25,6 +25,38 @@ Rows go away by themselves:
 - when a chat moves to a new session id (`/bg`, agent view, `/clear`, `/resume`);
 - spare background sessions that Claude starts in advance are never shown.
 
+## The reader
+
+Click the expand button in the header (or the chat icon on a row) and the box grows into a
+reader: your sessions on the left, the selected chat on the right.
+
+- **Read:** headings, bold, real tables, coloured code. Each code block has a **Copy** button,
+  each answer has one too, and **Copy last** copies Claude's last answer. **A- / A+** changes
+  the text size. Tool calls are folded into "N steps"; click to see the command and its output.
+- **Resize:** drag the left, right or bottom edge, or a bottom corner. Size and place are saved.
+- **Send:** type in the box and press Enter (Shift+Enter for a new line). The text is pasted
+  into the real Claude in that Ghostty tab, so every Claude Code feature works. "Sending to"
+  names the target tab, and the app checks that tab before it sends.
+- **Slash commands:** type `/` for a list of built-in commands, your skills and plugin skills.
+  Commands that open a menu (`/model`, `/config`, ...) bring the tab to the front.
+- **Voice:** hold space in the box. The Mac's speech engine writes your words into the box, so
+  you can fix them before sending. A short tap is a normal space. macOS asks for Microphone and
+  Speech Recognition permission the first time.
+- **Answer from the box:** when a tab needs you, the reader shows the question options, or
+  Allow once / Deny for a permission, or Approve / Keep planning for a plan. Anything more
+  complex has an **Open tab** button.
+- **Agents:** when Claude runs subagents, an Agents bar shows each one: type, description,
+  current step, step count and time. Running agents come first, finished ones fold away. Click
+  an agent to read its own chat; "Back to main chat" returns. The small stack shows a
+  "N agents" badge while agents work. (Workflow agents are not shown yet.)
+- **Stop:** sends Esc to the tab while Claude is working.
+- **Keyboard:** the box takes the keyboard only after you click inside the reader. Press Esc to
+  give it back.
+
+Limits: answers appear one message at a time, not word by word, because Claude Code saves whole
+messages. Sending works for Ghostty tabs only; other terminals and background chats are
+read-only.
+
 ## How it works
 
 ```
@@ -39,7 +71,15 @@ ClaudeStack.app (one floating box) <── reads every 0.5 s
   It prints nothing and always exits 0, so it can never break Claude.
 - `ClaudeStack.swift` is the app. It reads those files, checks the Claude process is still alive,
   and draws the box.
-- `PLAN.md` lists every situation the app handles, and why.
+- `Transcript.swift` reads the chat file (`transcript_path`) for the reader, only the new bytes
+  each time. `Reader.swift` feeds it to `web/reader.html`, a local page that uses the bundled
+  `marked` and `highlight.js` (in `web/vendor/`, with their licences). Raw HTML in an answer is
+  shown as text, never run.
+- `Ghostty.swift` pastes text and presses keys in a tab through Ghostty's AppleScript
+  (`input text`, `send key`). `Voice.swift` is the hold-space speech input.
+- `PLAN.md` lists every situation the app handles, and why. `READER-PLAN.md` does the same for
+  the reader.
+- `tests/run.sh` checks the chat parser against `tests/fixture.jsonl` (made-up content).
 
 ## Requirements
 

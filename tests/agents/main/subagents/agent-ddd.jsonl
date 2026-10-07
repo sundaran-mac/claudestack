@@ -1,0 +1,2 @@
+{"type": "user", "isSidechain": true, "uuid": "user2026-10-07T06:00:03.000Z", "timestamp": "2026-10-07T06:00:03.000Z", "message": {"role": "user", "content": "Find files"}}
+{"type": "assistant", "isSidechain": true, "uuid": "assistant2026-10-07T06:00:04.000Z", "timestamp": "2026-10-07T06:00:04.000Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "z1", "name": "Grep", "input": {"pattern": "foo"}}]}}

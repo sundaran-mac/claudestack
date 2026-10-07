@@ -10,7 +10,7 @@ exec 2>/dev/null
 input=$(cat)
 mkdir -p "$DIR"
 
-eval "$(jq -r '@sh "event=\(.hook_event_name // "") sid=\(.session_id // "") cwd=\(.cwd // "") tool=\(.tool_name // "") agent=\(.agent_id // "") ntype=\(.notification_type // "") nmsg=\(.message // "") source=\(.source // "") tpath=\(.transcript_path // "") prompt=\(.prompt // "" | gsub("\\s+"; " ") | .[0:80])"' <<<"$input")" || exit 0
+eval "$(jq -r '@sh "event=\(.hook_event_name // "") sid=\(.session_id // "") cwd=\(.cwd // "") tool=\(.tool_name // "") agent=\(.agent_id // "") ntype=\(.notification_type // "") nmsg=\(.message // "") source=\(.source // "") tpath=\(.transcript_path // "") detail=\(.tool_input | if type == "object" then (.command // .file_path // .pattern // .url // .query // .description // "") else "" end | tostring | gsub("\\s+"; " ") | .[0:160]) prompt=\(.prompt // "" | gsub("\\s+"; " ") | .[0:80])"' <<<"$input")" || exit 0
 [ -z "$sid" ] && exit 0
 
 file="$DIR/$sid.json"
@@ -41,6 +41,7 @@ jq -e . >/dev/null <<<"$prev" || prev='{}'
 eval "$(jq -r '@sh "pstatus=\(.status // "") pagent=\(.pending_agent // "") ppid_=\(.pid // "")"' <<<"$prev")"
 
 status=""; reason=""; pending="$pagent"
+ltool=""; ptool=""
 case "$event" in
   SessionStart)
     [ "$source" = "compact" ] || { status="waiting"; reason="Ready"; }
@@ -51,12 +52,13 @@ case "$event" in
     case "$tool" in
       AskUserQuestion) status="needs_input"; reason="Question"; pending="$agent" ;;
       ExitPlanMode)    status="needs_input"; reason="Plan approval"; pending="$agent" ;;
-      *) if [ "$pstatus" != "needs_input" ] || [ "$agent" = "$pagent" ]; then status="running"; fi ;;
+      *) if [ "$pstatus" != "needs_input" ] || [ "$agent" = "$pagent" ]; then status="running"; fi
+         ltool="$tool" ;;
     esac ;;
   PostToolUse|PostToolUseFailure)
     if [ "$pstatus" != "needs_input" ] || [ "$agent" = "$pagent" ]; then status="running"; fi ;;
   PermissionRequest)
-    status="needs_input"; reason="Permission"; pending="$agent" ;;
+    status="needs_input"; reason="Permission"; pending="$agent"; ptool="$tool" ;;
   Notification)
     case "$ntype" in
       permission_prompt) status="needs_input"; reason="Permission" ;;
@@ -88,6 +90,7 @@ tmp="$file.tmp.$$"
 jq -n --argjson prev "$prev" \
   --arg sid "$sid" --arg cwd "$cwd" --arg status "$status" --arg reason "$reason" \
   --arg prompt "$prompt" --arg branch "$branch" --arg pid "$pid" --arg tty "$tty" \
+  --arg ltool "$ltool" --arg ptool "$ptool" --arg detail "$detail" \
   --arg tpath "$tpath" --arg term "${TERM_PROGRAM:-}" --arg pending "$pending" --argjson now "$now" '
   $prev
   + {session_id: $sid, updated_at: $now, term: (if $term != "" then $term else ($prev.term // "") end)}
@@ -98,6 +101,8 @@ jq -n --argjson prev "$prev" \
   + (if $branch != "" then {branch: $branch} else {} end)
   + (if $tpath != "" then {transcript_path: $tpath} else {} end)
   + (if $prompt != "" then {prompt: $prompt} else {} end)
+  + (if $ltool != "" then {last_tool: $ltool, last_detail: $detail} else {} end)
+  + (if $ptool != "" then {pending_tool: $ptool, pending_detail: $detail} else {} end)
   + (if $status != "" then
        {status: $status, reason: $reason, pending_agent: $pending}
        + (if $prev.status != $status or $prev.reason != $reason then {status_since: $now} else {} end)

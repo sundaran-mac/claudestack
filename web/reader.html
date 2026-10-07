@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; font-src 'self'">
+<title>Claude Stack Reader</title>
+<link rel="stylesheet" href="vendor/github-dark.min.css">
+<link rel="stylesheet" href="reader.css">
+</head>
+<body>
+<header id="top">
+  <div class="who">
+    <span id="dot" class="dot"></span>
+    <span id="project" class="project">Claude</span>
+    <span id="branch" class="branch"></span>
+    <span id="status" class="status"></span>
+  </div>
+  <div class="tools">
+    <button id="font-down" class="tbtn" title="Smaller text">A-</button>
+    <button id="font-up" class="tbtn" title="Bigger text">A+</button>
+    <button id="copy-last" class="tbtn" title="Copy Claude's last answer">Copy last</button>
+    <button id="open-tab" class="tbtn" title="Open this tab in Ghostty">Open tab</button>
+  </div>
+</header>
+
+<section id="agents" hidden></section>
+<div id="viewbar" class="viewbar" hidden>
+  <button id="back" class="tbtn">Back to main chat</button>
+  <span id="viewlabel"></span>
+</div>
+
+<main id="scroll">
+  <button id="more" class="more" hidden>Load earlier messages</button>
+  <div id="chat"></div>
+  <div id="working" class="working" hidden><span class="spinner"></span><span id="working-text">Claude is working</span></div>
+  <div id="empty" class="empty" hidden>No messages yet. Send the first one below.</div>
+</main>
+<button id="latest" class="latest" hidden title="Go to the newest message">Jump to latest</button>
+
+<section id="pending" hidden></section>
+
+<footer id="composer">
+  <div class="target-row">
+    <span id="target" class="target"></span>
+    <span id="toast" class="toast" hidden></span>
+  </div>
+  <div id="slash" class="slash" hidden></div>
+  <div class="box">
+    <textarea id="input" rows="1" placeholder="Message Claude. / for commands. Hold space to talk." spellcheck="true"></textarea>
+    <div class="actions">
+      <button id="stop" class="btn ghost" title="Stop Claude (Esc in the tab)" hidden>Stop</button>
+      <button id="send" class="btn primary" title="Send (Enter). New line: Shift+Enter">Send</button>
+    </div>
+  </div>
+  <div id="voice" class="voice" hidden><span class="mic"></span><span id="voice-text">Listening... let go of space to stop</span></div>
+  <div id="blocked" class="blocked" hidden></div>
+</footer>
+
+<script src="vendor/marked.umd.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script src="reader.js"></script>
+</body>
+</html>

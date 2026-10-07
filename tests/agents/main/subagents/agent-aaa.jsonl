@@ -1,0 +1,4 @@
+{"type": "user", "isSidechain": true, "uuid": "user2026-10-07T06:00:02.000Z", "timestamp": "2026-10-07T06:00:02.000Z", "message": {"role": "user", "content": "Plan story A please"}}
+{"type": "assistant", "isSidechain": true, "uuid": "assistant2026-10-07T06:00:05.000Z", "timestamp": "2026-10-07T06:00:05.000Z", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "x1", "name": "Read", "input": {"file_path": "/repo/a.md"}}]}}
+{"type": "user", "isSidechain": true, "uuid": "user2026-10-07T06:00:06.000Z", "timestamp": "2026-10-07T06:00:06.000Z", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "x1", "content": "text"}]}}
+{"type": "assistant", "isSidechain": true, "uuid": "assistant2026-10-07T06:01:02.000Z", "timestamp": "2026-10-07T06:01:02.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "## Plan A\n\n| Step | File |\n|---|---|\n| 1 | a.ts |"}]}}

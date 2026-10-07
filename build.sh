@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds ~/Applications/ClaudeStack.app from ClaudeStack.swift.
+# Builds ~/Applications/ClaudeStack.app from the .swift files and the web/ reader page.
 set -euo pipefail
 cd "$(dirname "$0")"
 APP="$HOME/Applications/ClaudeStack.app"
@@ -17,9 +17,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>Claude Stack opens the Ghostty tab you click.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Claude Stack opens the Ghostty tab you click, and types the prompts you send.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Hold space in the prompt box to talk to Claude.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Your speech becomes text in the prompt box.</string>
 </dict></plist>
 PLIST
-swiftc -O -parse-as-library -target arm64-apple-macos14.0 ClaudeStack.swift -o "$APP/Contents/MacOS/ClaudeStack"
+swiftc -O -parse-as-library -target arm64-apple-macos14.0 *.swift -o "$APP/Contents/MacOS/ClaudeStack"
+rm -rf "$APP/Contents/Resources/web"
+mkdir -p "$APP/Contents/Resources"
+cp -R web "$APP/Contents/Resources/web"
 codesign --force --sign - --identifier local.sundaran.claudestack "$APP"
 echo "Built $APP"
