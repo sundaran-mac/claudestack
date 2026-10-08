@@ -20,6 +20,8 @@ final class TabVoice {
     var onUpdate: ((String, String, String?) -> Void)?
     /// The helper that sends the "held space". A separate process, so nothing else can slow it down.
     private var streamer: Process?
+    /// True while a voice try is sending spaces. Main thread only.
+    var busy: Bool { streamer != nil }
     private var tid: String?
     private var baseline = ""
     private var session: Session?
@@ -79,6 +81,28 @@ final class TabVoice {
                 self.streamer = p
                 self.startedAt = Date()
                 self.report("listening", "", nil)
+                self.followWords(tid: tid, base: base, gen: g)
+            }
+        }
+    }
+
+    /// While you hold space, read the tab's input line every 0.3 s and show the words in the box
+    /// as Claude Code writes them. Stops on release, because `stop` and `cancel` move the number on.
+    private func followWords(tid: String, base: String, gen g: Int) {
+        let q = Terminals.shared.q
+        DispatchQueue.global().async {
+            var shown = ""
+            while self.current(g) {
+                Thread.sleep(forTimeInterval: 0.3)
+                guard self.current(g), let raw = q.sync(execute: { readInputLine(tid) }) else { continue }
+                // Claude Code draws a moving mark after the words while it listens. That mark is
+                // its animation, not your words, and looks broken in the box, so it is cut here.
+                let now = withoutVoiceMark(raw)
+                if raw != now { voiceLog("live mark cut: \(raw.suffix(raw.count - now.count).unicodeScalars.map { String(format: "U+%04X", $0.value) }.joined(separator: " "))") }
+                // A status hint in the input line is not your words.
+                guard self.current(g), now != base, now != shown, !now.lowercased().contains("listening") else { continue }
+                shown = now
+                self.report("listening", now, nil)
             }
         }
     }
@@ -138,13 +162,25 @@ final class TabVoice {
             guard self.current(g) else { return voiceLog("read stopped before moving the words") }
             // Move the words: clear the tab's input line, then hand them to the box.
             q.sync { clearInputLine(tid, count: text.count) }
-            self.report("done", text, nil)
+            self.report("done", withoutVoiceMark(text), nil)
         }
     }
 
     private func report(_ state: String, _ text: String, _ err: String?) {
         DispatchQueue.main.async { self.onUpdate?(state, text, err) }
     }
+}
+
+/// The words without the animation mark Claude Code puts after them while listening: trailing
+/// symbols (bars, dots, braille spinners), a trailing "…", and spaces.
+func withoutVoiceMark(_ text: String) -> String {
+    var t = Substring(text)
+    while let c = t.last, let u = c.unicodeScalars.first,
+          c.isWhitespace || c == "…" || u.properties.generalCategory == .otherSymbol
+            || u.properties.generalCategory == .privateUse || u.properties.generalCategory == .format {
+        t = t.dropLast()
+    }
+    return String(t)
 }
 
 /// Deletes `count` characters before the cursor in the tab's input line.
@@ -168,13 +204,14 @@ func readInputLine(_ tid: String) -> String? {
 /// The visible screen of a Ghostty tab, as text.
 /// Ghostty hands over the screen only through the clipboard, so this borrows it for a moment
 /// and puts back exactly what was there.
-func readScreen(_ tid: String) -> String? {
+/// With `colours`, the file keeps the terminal's colour codes (Ghostty's "vt" format).
+func readScreen(_ tid: String, colours: Bool = false) -> String? {
     let pb = NSPasteboard.general
     let saved: [[(NSPasteboard.PasteboardType, Data)]] = (pb.pasteboardItems ?? []).map { item in
         item.types.compactMap { t in item.data(forType: t).map { (t, $0) } }
     }
     let before = pb.changeCount
-    run("/usr/bin/osascript", ["-e", "tell application \"Ghostty\" to perform action \"write_screen_file:copy\" on terminal id \"\(tid)\""], wait: true)
+    run("/usr/bin/osascript", ["-e", "tell application \"Ghostty\" to perform action \"write_screen_file:copy\(colours ? ",vt" : "")\" on terminal id \"\(tid)\""], wait: true)
     var path: String?
     for _ in 0..<50 {
         if pb.changeCount != before { path = pb.string(forType: .string); break }
@@ -190,6 +227,7 @@ func readScreen(_ tid: String) -> String? {
         }
         if !items.isEmpty { pb.writeObjects(items) }
     }
+    ClipWatch.ours()
     guard let path, let screen = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
     try? FileManager.default.removeItem(atPath: path)
     return screen

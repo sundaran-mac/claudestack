@@ -42,6 +42,10 @@
 <main id="scroll">
   <button id="more" class="more" hidden>Load earlier messages</button>
   <div id="chat"></div>
+  <div id="live" class="msg assistant live" hidden>
+    <div class="role"><span>Claude</span><span class="live-tag">writing live</span></div>
+    <div id="live-text" class="live-text"></div>
+  </div>
   <div id="working" class="working" hidden><span class="spinner"></span><span id="working-text">Claude is working</span></div>
   <div id="empty" class="empty" hidden>No messages yet. Send the first one below.</div>
 </main>
@@ -63,7 +67,7 @@
       <button id="send" class="btn primary" title="Send (Enter). New line: Shift+Enter">Send</button>
     </div>
   </div>
-  <div id="voice" class="voice" hidden><span class="mic"></span><span id="voice-text">Listening...</span></div>
+  <div id="voice" class="voice" hidden><span class="wave"><i></i><i></i><i></i><i></i><i></i></span><span id="voice-text">Listening...</span></div>
   <div id="blocked" class="blocked" hidden></div>
 </footer>
 

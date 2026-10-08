@@ -149,6 +149,7 @@ window.CS = {
     setStick(true);
     $("pending").hidden = true;
     $("more").hidden = true;
+    $("live").hidden = true; liveNow = ""; liveDrawn = "";
     agents = []; viewAgent = ""; showDone = false; mapKey = ""; centerLeadSoon();
     if (mode === "agents") drawMap();
     $("agents").hidden = true;
@@ -188,6 +189,8 @@ window.CS = {
     $("more").hidden = !hasMore;
     $("empty").hidden = items.length > 0;
     updateAgentChips();
+    // The message may have reached the transcript: the live copy then steps aside.
+    if (liveNow) drawLive();
     if (first || atBottom) toBottom();
     else if (prepended && oldTop) scroller.scrollTop += oldTop.getBoundingClientRect().top - oldOffset;
     first = false;
@@ -247,11 +250,21 @@ window.CS = {
 
   // Voice runs in the tab through Claude Code's own voice mode. States: listening, writing, done.
   voice({ state, text, error }) {
-    if (state === "listening") { $("voice-text").textContent = "Listening in the tab (Claude Code voice)... let go of space to stop"; return; }
+    if (state === "listening") {
+      $("voice-text").textContent = "Listening in the tab (Claude Code voice)... let go of space to stop";
+      // The words so far, shown in the box as you speak. The final words replace them on release.
+      if (text && voiceBase) showVoiceWords(text);
+      return;
+    }
     if (state === "writing") { $("voice-text").textContent = "Claude Code is writing your words..."; return; }
     voiceOn = false;
     $("voice").hidden = true;
-    if (error) { voiceBase = null; return toast(error, false); }
+    if (error) {
+      // Take back any words shown while you spoke: the box goes back to what you had typed.
+      if (voiceBase) { input.value = voiceBase.before + voiceBase.after; drafts[sid] = input.value; autosize(); }
+      voiceBase = null;
+      return toast(error, false);
+    }
     if (voiceBase && text) {
       const join = voiceBase.before && !/\s$/.test(voiceBase.before) ? " " : "";
       input.value = voiceBase.before + join + text + voiceBase.after;
@@ -265,6 +278,14 @@ window.CS = {
   },
 
   paste(text) { insertText(text); },
+
+  // The answer Claude is writing now, read from the tab's screen. Plain text, a preview only:
+  // the formatted bubble takes its place when the message reaches the transcript.
+  live({ sid: id, text }) {
+    if (id !== sid) return;
+    liveNow = text || "";
+    drawLive();
+  },
 
   setAgents({ sid: id, agents: list }) {
     if (id !== sid) return;
@@ -298,6 +319,7 @@ window.CS = {
 
   view({ agent, label }) {
     viewAgent = agent || "";
+    $("live").hidden = true; liveNow = ""; liveDrawn = "";
     rendered.clear();
     chat.innerHTML = "";
     first = true;
@@ -308,6 +330,59 @@ window.CS = {
   },
 };
 let first = true;
+
+/// The live bubble: the answer Claude is writing, as the terminal shows it. Answer lines in the
+/// normal font; table lines (box drawing) in a fixed-width block so the columns stay lined up.
+/// Only what changed is redrawn, so the bubble grows in place and never jumps.
+let liveNow = "", liveDrawn = "";
+function drawLive() {
+  const atBottom = stick;
+  const show = !!liveNow && !viewAgent && !alreadyShown(liveNow);
+  $("live").hidden = !show;
+  if (show && liveNow !== liveDrawn) {
+    liveDrawn = liveNow;
+    const box = $("live-text");
+    const parts = [];
+    for (const line of liveNow.split("\n")) {
+      const table = /^\s*[│┌└├┬┴┼─╭╰]/.test(line);
+      const last = parts[parts.length - 1];
+      if (last && last.table === table) last.lines.push(line); else parts.push({ table, lines: [line] });
+    }
+    // Reuse the blocks already on the page; change only the text that is new.
+    while (box.children.length > parts.length) box.lastChild.remove();
+    parts.forEach((p, i) => {
+      let el = box.children[i];
+      const cls = p.table ? "live-table" : "live-para";
+      if (!el || el.className !== cls) {
+        const fresh = document.createElement(p.table ? "pre" : "div");
+        fresh.className = cls;
+        if (el) el.replaceWith(fresh); else box.appendChild(fresh);
+        el = fresh;
+      }
+      const t = p.lines.join("\n");
+      if (el.textContent !== t) el.textContent = t;
+    });
+  }
+  if (!show) liveDrawn = "";
+  if (atBottom) toBottom();
+}
+
+/// Puts the words heard so far into the box, between what was before and after the cursor.
+function showVoiceWords(text) {
+  const join = voiceBase.before && !/\s$/.test(voiceBase.before) ? " " : "";
+  input.value = voiceBase.before + join + text + voiceBase.after;
+  autosize();
+}
+
+/// True when the newest Claude bubble already holds this text, so the live preview would repeat it.
+/// Compared on letters and digits only: the screen drops markdown marks and wraps lines.
+const norm = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+function alreadyShown(text) {
+  const want = norm(text).slice(0, 80);
+  if (!want) return true;
+  const mine = [...chat.querySelectorAll(".msg.assistant")].slice(-2).map((el) => rendered.get(el.dataset.id)).filter(Boolean);
+  return mine.some((r) => r.item.blocks.some((b) => b.type === "text" && norm(b.text).includes(want)));
+}
 
 // Follow new messages only while you are at the bottom. Any scroll up stops following at
 // once, even a small one; scrolling back to the very bottom starts it again. Updates arrive

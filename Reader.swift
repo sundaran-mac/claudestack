@@ -61,10 +61,16 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
     private var ready = false
     private let parseQ = DispatchQueue(label: "parse")
     let voice = TabVoice()
+    /// True while the reader window is on screen. Set by the app. The live reads run only then.
+    var isShown: () -> Bool = { false }
+    private var liveTimer: Timer?
+    private var liveBusy = false
+    private var liveShown = false
 
     init(prefs: Prefs) {
         self.prefs = prefs
         super.init()
+        liveTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in self?.liveTick() }
         voice.onUpdate = { [weak self] state, text, err in
             self?.js("CS.voice", ["state": state, "text": text, "error": err ?? ""])
         }
@@ -76,7 +82,8 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
         guard id != selectedId else { return }
         selectedId = id
         mainReader = nil; agentReader = nil; scanner = nil; viewAgent = nil
-        limit = 60; lastItemsKey = ""; lastStateJSON = ""; lastAgentsJSON = ""; lastAsk = nil
+        limit = 60; lastItemsKey = ""; lastStateJSON = ""; lastAgentsJSON = ""; lastAsk = nil; liveShown = false
+        liveText = ""; liveWaiting = nil
         js("CS.reset", ["sid": id])
         refresh()
         onSelect?()
@@ -130,6 +137,63 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
                 self.pushState()
             }
         }
+    }
+
+    // MARK: - Live answer
+
+    /// Reads the selected tab's screen while Claude is writing, and shows the newest answer text.
+    /// Only for the main chat of a Ghostty tab that is Running, while the reader is on screen,
+    /// with no voice try going (voice reads the same screen), and never within 2 s of your own copy.
+    private func liveTick() {
+        guard ready, !liveBusy else { return }
+        guard let row = selectedRow, isShown(), tab == "chats", viewAgent == nil, row.display == .running,
+              !row.background, row.s.tty != nil, ["ghostty", ""].contains((row.s.term ?? "").lowercased()),
+              !voice.busy else { return clearLive() }
+        guard ClipWatch.quiet(for: 2) else { return }
+        let s = row.s, sid = row.id
+        liveBusy = true
+        let t = Terminals.shared
+        t.q.async {
+            // Check again on the queue: a voice try or a send may have touched the clipboard meanwhile.
+            let screen = ClipWatch.quiet(for: 2) ? t.terminalId(for: s).flatMap { readScreen($0, colours: true) } : nil
+            // No read (clipboard busy, tab not found): nothing to change.
+            guard let screen else { return DispatchQueue.main.async { self.liveBusy = false } }
+            let text = liveAnswer(fromScreen: screen)
+            DispatchQueue.main.async {
+                self.liveBusy = false
+                guard self.selectedId == sid, self.viewAgent == nil, self.selectedRow?.display == .running else { return self.clearLive() }
+                guard let shown = self.steady(text) else { return }
+                self.liveShown = !shown.isEmpty
+                self.js("CS.live", ["sid": sid, "text": shown])
+            }
+        }
+    }
+
+    /// The last text sent to the page, and a change waiting for a second read to confirm it.
+    private var liveText = ""
+    private var liveWaiting: String?
+
+    /// Keeps the bubble steady, like the terminal: text that grows is shown at once, but any other
+    /// change (a new block, or no answer on the screen) must be read twice in a row first. One odd
+    /// read, taken while the terminal was half drawn, never makes the bubble jump or vanish.
+    /// Returns the text to show, or nil when nothing should change.
+    private func steady(_ read: String?) -> String? {
+        let now = read ?? ""
+        if now == liveText { liveWaiting = nil; return nil }
+        // Growing text, or the first text after none: show at once.
+        if !now.isEmpty, liveText.isEmpty || now.hasPrefix(liveText) {
+            liveWaiting = nil; liveText = now; return now
+        }
+        if liveWaiting == now { liveWaiting = nil; liveText = now; return now }
+        liveWaiting = now
+        return nil
+    }
+
+    private func clearLive() {
+        liveText = ""; liveWaiting = nil
+        guard liveShown, let sid = selectedId else { return }
+        liveShown = false
+        js("CS.live", ["sid": sid, "text": ""])
     }
 
     // MARK: - Payloads
