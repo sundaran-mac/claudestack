@@ -288,6 +288,10 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
                     return js("CS.voice", ["state": "done", "text": "", "error": "You switched sessions. Voice did not start."])
                 }
                 voice.start(row.s)
+            } else if body["cancel"] as? Bool == true {
+                // You switched chats while the words were still coming: drop that try.
+                voiceLog("cancel: chat switched")
+                voice.cancel()
             } else {
                 voice.stop()
             }

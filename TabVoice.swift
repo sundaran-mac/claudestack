@@ -23,25 +23,38 @@ final class TabVoice {
     private var tid: String?
     private var baseline = ""
     private var session: Session?
+    /// Goes up on every new try and on cancel. An older try that sees a newer number stops quietly,
+    /// so it never blocks the next try or reports into it.
+    private var gen = 0
+    private let lock = NSLock()
+    private func current(_ g: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return gen == g }
+    private func bump() -> Int { lock.lock(); defer { lock.unlock() }; gen += 1; return gen }
 
     /// Starts listening in the session's tab. Runs the lookups off the main thread.
     func start(_ s: Session) {
         guard streamer == nil else { return }
+        let g = bump()
         wanted = true
         session = s
         voiceLog("start session=\(s.session_id.prefix(8)) tty=\(s.tty ?? "-") term=\(s.term ?? "-")")
         let t = Terminals.shared
         t.q.async {
+            guard self.current(g) else { return voiceLog("start replaced by a newer try") }
             guard let tid = t.terminalId(for: s) else {
                 voiceLog("no terminal found")
                 return self.report("done", "", "Could not find this tab in Ghostty, so voice cannot start.")
             }
             // What the input line shows before you speak (a placeholder, or a draft you typed).
+            // Read before showing the tab: while the tab switches, the grey suggestion is briefly
+            // gone, and coming back it would look like your words.
             let base = readInputLine(tid) ?? ""
-            voiceLog("terminal=\(tid.prefix(8)) baseline=\(base.prefix(40))")
+            // Claude Code's voice gives no words in a hidden tab, so show this tab first.
+            let shown = t.showTab(tid)
+            if shown { Thread.sleep(forTimeInterval: 0.3) }
+            voiceLog("terminal=\(tid.prefix(8)) shown=\(shown) baseline=\(base.prefix(40))")
             DispatchQueue.main.async {
                 // You let go while the tab was being found: do not start sending spaces.
-                guard self.wanted else { return voiceLog("released before start, nothing sent") }
+                guard self.wanted, self.current(g) else { return voiceLog("released before start, nothing sent") }
                 self.tid = tid
                 self.baseline = base
                 // Ghostty's "text" action types like the keyboard. Claude Code keeps listening only
@@ -71,7 +84,10 @@ final class TabVoice {
     }
 
     /// The app is quitting: stop sending at once, take nothing.
+    /// Also used when you switch chats: a reading loop still running stops, and leaves any words
+    /// in the old tab rather than putting them into the new chat.
     func cancel() {
+        _ = bump()
         wanted = false
         streamer?.terminate()
         streamer = nil
@@ -92,7 +108,11 @@ final class TabVoice {
         guard let tid else { return }
         report("writing", "", nil)
         let base = baseline
-        Terminals.shared.q.async {
+        let g = bump()
+        let q = Terminals.shared.q
+        // The waiting happens here, not on the Ghostty queue: each read takes the queue only for a
+        // moment, so a try in another chat can start straight away.
+        DispatchQueue.global().async {
             var last: String?
             var same = 0
             var text = ""
@@ -100,17 +120,24 @@ final class TabVoice {
             // late. Take the line once it has stayed the same for three reads (about a second).
             for _ in 0..<30 {
                 Thread.sleep(forTimeInterval: 0.35)
-                guard let now = readInputLine(tid) else { continue }
+                guard self.current(g) else { return voiceLog("read stopped: a newer try or a chat switch") }
+                guard let now = q.sync(execute: { readInputLine(tid) }) else { continue }
                 same = (now == last) ? same + 1 : 0
                 last = now
                 if same >= 2, now != base { text = now; break }
             }
             voiceLog("read text=\(text.prefix(60)) last=\((last ?? "nil").prefix(40))")
             if text.isEmpty {
+                // Keep Claude Code's status lines, so the reason can be read in voice.log afterwards.
+                let tail = q.sync { readScreen(tid) }?.components(separatedBy: "\n")
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.hasPrefix("─") }.suffix(3)
+                voiceLog("no words; screen bottom: \((tail ?? []).joined(separator: " | ").prefix(300))")
+                guard self.current(g) else { return }
                 return self.report("done", "", "No words came through. Hold space a little longer, and speak after \"listening\" shows.")
             }
+            guard self.current(g) else { return voiceLog("read stopped before moving the words") }
             // Move the words: clear the tab's input line, then hand them to the box.
-            clearInputLine(tid, count: text.count)
+            q.sync { clearInputLine(tid, count: text.count) }
             self.report("done", text, nil)
         }
     }

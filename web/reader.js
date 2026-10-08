@@ -149,7 +149,7 @@ window.CS = {
     setStick(true);
     $("pending").hidden = true;
     $("more").hidden = true;
-    agents = []; viewAgent = ""; showDone = false; mapKey = "";
+    agents = []; viewAgent = ""; showDone = false; mapKey = ""; centerLeadSoon();
     if (mode === "agents") drawMap();
     $("agents").hidden = true;
     $("viewbar").hidden = true;
@@ -194,7 +194,16 @@ window.CS = {
   },
 
   setState(st) {
-    if (st.sid !== sid) { sid = st.sid; }
+    if (st.sid !== sid) {
+      // A voice try from the old chat must not block the new one or land in its box.
+      if (voiceOn) {
+        post({ type: "voice", on: false, cancel: true, sid });
+        voiceOn = false;
+        voiceBase = null;
+        $("voice").hidden = true;
+      }
+      sid = st.sid;
+    }
     state = st;
     document.documentElement.style.setProperty("--fs", (st.fontSize || 15) + "px");
     $("project").textContent = st.project || "Claude";
@@ -284,7 +293,7 @@ window.CS = {
     $("latest").hidden = a || stick;
     $("viewbar").hidden = a || !viewAgent;
     drawAgents();
-    if (a) { mapKey = ""; drawMap(); } else if (stick) toBottom();
+    if (a) { mapKey = ""; centerLeadSoon(); drawMap(); } else if (stick) toBottom();
   },
 
   view({ agent, label }) {
@@ -565,9 +574,8 @@ function drawMap() {
   }
   const branch = (a) => `<div class="tnode">${card(a)}${(kids[a.id] || []).length ? `<div class="tkids">${kids[a.id].map(branch).join("")}</div>` : ""}</div>`;
   $("am-map").innerHTML = `<div class="tnode root">${leadCard()}<div class="tkids">${(kids[""] || []).map(branch).join("")}</div></div>`;
-  // Top-down while the lead's agents fit in one row; past that a vertical tree, so lines never cross a card.
-  const fit = Math.max(1, Math.floor(($("am-mapwrap").clientWidth - 24) / 234));
-  $("am-map").classList.toggle("vertical", (kids[""] || []).length > fit);
+  // Always the top-down tree. A tree bigger than the box is zoomed out or scrolled, never folded.
+  applyZoom();
 
   // Timeline: one bar per agent, oldest first. "Recent" zooms to the agents active in the last
   // 30 minutes: the axis starts at the first of them, so short agents still get wide bars.
@@ -590,9 +598,9 @@ function drawMap() {
       : `<div class="tl-bar st-${esc(a.status)}" data-style="left:${pct(a.start).toFixed(2)}%;width:${Math.max(0.8, pct(a.end) - pct(a.start)).toFixed(2)}%"></div>`}</div>` +
     `<div class="tl-dur" data-time="${esc(a.id)}">${dur(a.secs)}</div></div>`).join("");
   $("am-timeline").innerHTML = rangeBar + `<div class="tl-axis"><div></div><div class="tl-ticks">${ticks}</div><div></div></div>${rows}`;
-  requestAnimationFrame(drawEdges);
+  requestAnimationFrame(() => applyZoom());
   // Again once fonts and sizes have settled, in case the first draw came too early.
-  setTimeout(drawEdges, 120);
+  setTimeout(() => applyZoom(), 120);
 }
 
 /// Only the clocks and step counts moved: change those numbers, no redraw.
@@ -604,11 +612,85 @@ function tickMap() {
   }
 }
 
+// ---------- Map zoom ----------
+// null: shrink the tree to fit the box, but not below ZREAD, so cards stay readable and you scroll.
+// "fit": the whole tree in the box, however small (the Fit button). Both re-fit on every redraw.
+// A number is a zoom you chose; it stays while the map updates live.
+let mapZoom = null, zoomNow = 1;
+// When the map opens, scroll a wide tree so the lead sits in the middle, not at the left edge.
+// Kept for a moment, because the map is drawn again once sizes settle.
+let centerUntil = 0;
+const centerLeadSoon = () => { centerUntil = Date.now() + 1500; };
+const ZMIN = 0.25, ZMAX = 2, ZREAD = 0.6;
+
+/// Sets the zoom. `anchor` (a point in the window) stays in place, so zooming goes where you point.
+/// A scale, not CSS zoom: in this web view CSS zoom shrank the cards but not their text.
+function applyZoom(anchor) {
+  const map = $("am-map"), sizer = $("am-sizer"), wrap = $("am-mapwrap");
+  // Not on screen (the Chats tab is open): nothing to measure yet.
+  if (!map || wrap.hidden || !wrap.clientWidth) return;
+  const before = zoomNow;
+  const box = wrap.getBoundingClientRect();
+  const ax = anchor ? anchor.x - box.left : 0, ay = anchor ? anchor.y - box.top : 0;
+  const px = wrap.scrollLeft + ax, py = wrap.scrollTop + ay;
+  // The tree's size at 100%. offsetWidth ignores the scale, so no need to take it off.
+  map.style.minWidth = "0";
+  const w = map.offsetWidth, h = map.offsetHeight, room = wrap.clientWidth - 8;
+  const fit = Math.min(1, room / w, (window.innerHeight * 0.62 - 30) / h);
+  // By default shrink to fit, but not below what can be read; past that, scroll.
+  let z = mapZoom === "fit" ? fit : mapZoom === null ? Math.max(ZREAD, fit) : mapZoom;
+  zoomNow = Math.max(ZMIN, Math.min(ZMAX, z));
+  // A tree narrower than the box is widened to it, so it sits in the middle.
+  map.style.minWidth = room / zoomNow + "px";
+  map.style.transform = `scale(${zoomNow})`;
+  sizer.style.width = Math.max(w, room / zoomNow) * zoomNow + "px";
+  sizer.style.height = h * zoomNow + "px";
+  $("am-zoomval").textContent = Math.round(zoomNow * 100) + "%";
+  if (anchor) {
+    const k = zoomNow / before;
+    wrap.scrollLeft = px * k - ax;
+    wrap.scrollTop = py * k - ay;
+  } else if (Date.now() < centerUntil && $("am-lead")) {
+    const l = $("am-lead").getBoundingClientRect();
+    wrap.scrollLeft += l.left + l.width / 2 - (box.left + wrap.clientWidth / 2);
+  }
+  drawEdges();
+}
+
+function zoomBy(f, anchor) {
+  mapZoom = Math.max(ZMIN, Math.min(ZMAX, zoomNow * f));
+  applyZoom(anchor);
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-zoom]");
+  if (!b) return;
+  if (b.dataset.zoom === "fit") { mapZoom = "fit"; centerLeadSoon(); applyZoom(); }
+  else zoomBy(b.dataset.zoom === "in" ? 1.2 : 1 / 1.2);
+});
+// Ctrl + mouse wheel zooms, plain wheel scrolls.
+$("am-mapwrap").addEventListener("wheel", (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  zoomBy(Math.exp(-e.deltaY * 0.01), { x: e.clientX, y: e.clientY });
+}, { passive: false });
+// Trackpad pinch arrives as WebKit gesture events.
+let pinchFrom = 1;
+$("am-mapwrap").addEventListener("gesturestart", (e) => { e.preventDefault(); pinchFrom = zoomNow; });
+$("am-mapwrap").addEventListener("gesturechange", (e) => {
+  e.preventDefault();
+  mapZoom = Math.max(ZMIN, Math.min(ZMAX, pinchFrom * e.scale));
+  applyZoom({ x: e.clientX, y: e.clientY });
+});
+
 /// Curved lines from each card to the cards it started. Running ones flow.
 function drawEdges() {
   const wrap = $("am-mapwrap"), svg = $("am-edges");
   if (!wrap || wrap.hidden) return;
   const box = wrap.getBoundingClientRect();
+  // Shrink the lines layer first, or its old size keeps the scroll area big after a zoom out.
+  svg.setAttribute("width", 0);
+  svg.setAttribute("height", 0);
   svg.setAttribute("width", wrap.scrollWidth);
   svg.setAttribute("height", wrap.scrollHeight);
   const pos = (el) => {
@@ -616,7 +698,6 @@ function drawEdges() {
     const left = r.left - box.left + wrap.scrollLeft;
     return { x: left + r.width / 2, left, top: r.top - box.top + wrap.scrollTop, bottom: r.bottom - box.top + wrap.scrollTop };
   };
-  const vertical = $("am-map").classList.contains("vertical");
   // Running lines go last, so they are drawn on top of the finished ones they share a trunk with.
   let paths = "", livePaths = "";
   wrap.querySelectorAll(".tnode").forEach((node) => {
@@ -624,21 +705,14 @@ function drawEdges() {
     node.querySelectorAll(":scope > .tkids > .tnode > .acard").forEach((to) => {
       const a = pos(from), b = pos(to);
       const status = (to.className.match(/st-(\w+)/) || [])[1] || "done";
-      if (vertical) {
-        // Elbow: down the parent's left side, then right into the child's middle.
-        const x = a.left + 18, y = (b.top + b.bottom) / 2;
-        const p = `<path class="edge e-${status}" d="M${x} ${a.bottom} V${y - 8} Q${x} ${y} ${x + 8} ${y} H${b.left}"/>`;
-        if (status === "running" || status === "stuck") livePaths += p; else paths += p;
-      } else {
-        const y1 = a.bottom, y2 = b.top, dy = (y2 - y1) / 2;
-        const p = `<path class="edge e-${status}" d="M${a.x} ${y1} C${a.x} ${y1 + dy} ${b.x} ${y2 - dy} ${b.x} ${y2}"/>`;
-        if (status === "running" || status === "stuck") livePaths += p; else paths += p;
-      }
+      const y1 = a.bottom, y2 = b.top, dy = (y2 - y1) / 2;
+      const p = `<path class="edge e-${status}" d="M${a.x} ${y1} C${a.x} ${y1 + dy} ${b.x} ${y2 - dy} ${b.x} ${y2}"/>`;
+      if (status === "running" || status === "stuck") livePaths += p; else paths += p;
     });
   });
   svg.innerHTML = paths + livePaths;
 }
-window.addEventListener("resize", () => { if (mode === "agents") requestAnimationFrame(drawEdges); });
+window.addEventListener("resize", () => { if (mode === "agents") requestAnimationFrame(() => applyZoom()); });
 
 // mousedown, not click: the bar is redrawn every half second while agents run.
 document.addEventListener("mousedown", (e) => {
