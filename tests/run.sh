@@ -77,4 +77,17 @@ printf '%s' '{"prompt":"Add a page"}' | HOME=$th DAYHOOK_CLOCK=18:05 DAYHOOK_WEE
 printf '%s' '{"prompt":"Add a page"}' | HOME=$th DAYHOOK_CLOCK=18:50 DAYHOOK_WEEKDAY=4 bash ../day-hook.sh | grep -q "ended at 18:30, 20 minutes ago" \
   && echo "ok   day hook says the day is over at 18:50" || { echo "FAIL day hook at 18:50"; fail=1; }
 rm -rf "$th"
+# Live answer from a saved screen: answer text only, never a tool step or an old answer.
+lv() { "$BIN" --live-parse "screens/$1.txt"; }
+[ "$(lv plain | head -1)" = "The hook runs on 9 events. It writes one file per session." ] && [ "$(lv plain | tail -1)" = "- the app reads it every 0.5 s" ] \
+  && echo "ok   live answer: text block, spinner and input box cut" || { echo "FAIL live answer plain"; fail=1; }
+[ "$(lv tool)" = "(none)" ] && [ "$(lv old-tool)" = "(none)" ] \
+  && echo "ok   live answer: tool steps are not shown" || { echo "FAIL live answer showed a tool step"; fail=1; }
+[ "$(lv new-prompt)" = "(none)" ] && echo "ok   live answer: an old answer above a new prompt is not shown" || { echo "FAIL live answer new prompt"; fail=1; }
+[ "$(lv empty)" = "(none)" ] && echo "ok   live answer: empty screen" || { echo "FAIL live answer empty"; fail=1; }
+[ "$(lv scrolled | tail -1)" = "Shall I go with A?" ] && echo "ok   live answer: start scrolled off the top" || { echo "FAIL live answer scrolled"; fail=1; }
+[ "$(lv vt-tool-on)" = "(none)" ] && [ "$(lv vt-tool-blink)" = "(none)" ] \
+  && echo "ok   live answer: a grey tool mark, also when blinked off, is a tool step" || { echo "FAIL live answer read a tool step as text"; fail=1; }
+[ "$(lv vt-text)" = "$(printf 'The answer has bold words.\nAnd a second line.')" ] \
+  && echo "ok   live answer: white mark is text, colour codes removed" || { echo "FAIL live answer vt text"; fail=1; }
 exit $fail

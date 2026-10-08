@@ -40,6 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         web = makeWebView(model: reader)
         reader.onFocusTab = { [weak self] s in self?.focuser.focus(s) }
+        reader.isShown = { [weak self] in
+            guard let w = self?.readerWindow else { return false }
+            return w.isVisible && !w.isMiniaturized
+        }
 
         let view = StackView(store: store, prefs: prefs, reader: reader, coach: coach, focuser: focuser,
                              onDrag: { [weak self] v in self?.drag(v) },
@@ -299,6 +303,12 @@ struct Main {
             FileHandle.standardOutput.write(data)
             return
         }
+        // Test mode: print the live answer found on a saved screen. Usage: ClaudeStack --live-parse screen.txt
+        if args.count >= 3, args[1] == "--live-parse" {
+            let screen = (try? String(contentsOfFile: args[2], encoding: .utf8)) ?? ""
+            print(liveAnswer(fromScreen: screen) ?? "(none)")
+            return
+        }
         // Test mode: print the agents of a transcript as JSON. Usage: ClaudeStack --agents file.jsonl
         if args.count >= 3, args[1] == "--agents" {
             let r = TranscriptReader(path: args[2])
@@ -327,7 +337,7 @@ struct Main {
                 print("no session \(args[2])"); return
             }
             if args[1] == "--screen" {
-                print(Terminals.shared.q.sync { Terminals.shared.terminalId(for: s) }.flatMap(readScreen) ?? "(none)")
+                print(Terminals.shared.q.sync { Terminals.shared.terminalId(for: s) }.flatMap { readScreen($0) } ?? "(none)")
             } else {
                 let sem = DispatchSemaphore(value: 0)
                 Terminals.shared.keys(args.dropFirst(3).map(ghosttyKeyName), to: s) { err in print(err.map { "\($0)" } ?? "ok"); sem.signal() }

@@ -1,0 +1,17 @@
+❯ explain the hook
+
+⏺ Read 2 files
+
+⏺ The hook runs on 9 events. It writes one file per session.
+
+  Main parts:
+  - stack-hook.sh saves the status
+  - the app reads it every 0.5 s
+
+✻ Herding… (9s · ↓ 717 tokens)
+  ⎿  Tip: You can control how big a workflow is just by prompting.
+
+───────────────────────────────────────────
+❯ 
+───────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

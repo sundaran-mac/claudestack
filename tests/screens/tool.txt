@@ -1,0 +1,10 @@
+⏺ The hook runs on 9 events.
+
+⏺ Capturing a second screen sample
+  ⎿  $ cd /tmp && ls
+
+✢ Running… (3s)
+
+───────────────────────────────────────────
+❯ 
+───────────────────────────────────────────
