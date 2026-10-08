@@ -331,14 +331,22 @@ pre.plain {
 .am-title { color: var(--text); font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; margin: 6px 0 10px; }
 .am-title span { color: var(--muted); font-weight: 600; text-transform: none; letter-spacing: 0; margin-left: 6px; }
 
-.am-mapwrap { position: relative; overflow-x: auto; padding: 4px 4px 22px; margin-bottom: 18px; border: 1px solid var(--line);
+/* The map box scrolls both ways; a tree bigger than the box is zoomed out or scrolled, never folded. */
+.am-mapwrap { position: relative; overflow: auto; max-height: 62vh; padding: 4px 4px 22px; margin-bottom: 18px; border: 1px solid var(--line);
   border-radius: 14px; background: radial-gradient(circle at 1px 1px, rgba(138,155,174,.13) 1px, transparent 0) 0 0/18px 18px; }
 .am-edges { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
-.am-map { position: relative; display: flex; justify-content: center; padding: 18px 12px 0; }
+/* max-content keeps the tree at its own width; zoom is a scale on top, set from reader.js. A small tree
+   is centred by a min-width, and a wide one can still scroll to its left edge. */
+.am-map { position: relative; display: flex; width: max-content; justify-content: center; padding: 18px 12px 0; box-sizing: border-box; transform-origin: 0 0; }
+/* Takes the zoomed size of the map, so the box scrolls exactly as far as the tree reaches. */
+.am-sizer { position: relative; }
 .tnode { display: flex; flex-direction: column; align-items: center; }
 .tkids { display: flex; gap: 14px; margin-top: 46px; align-items: flex-start; justify-content: center; }
-/* Many agents from the lead wrap onto more rows instead of running off the side. */
-.root > .tkids { flex-wrap: wrap; row-gap: 40px; max-width: 100%; }
+.am-zoom { float: right; display: flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
+.am-zoom button { background: var(--surface); border: 1px solid var(--line); color: var(--soft); border-radius: 8px;
+  min-width: 26px; height: 24px; padding: 0 8px; font-weight: 800; font-size: 12px; cursor: pointer; }
+.am-zoom button:hover { border-color: var(--blue); color: var(--text); }
+.am-zoom b { font-family: var(--mono); font-size: 11px; color: var(--muted); min-width: 40px; text-align: center; }
 
 .edge { fill: none; stroke-width: 2; }
 .edge.e-running, .edge.e-stuck { stroke: var(--blue-soft); stroke-dasharray: 7 7; animation: flow 0.9s linear infinite; }
@@ -412,13 +420,6 @@ pre.plain {
 .how div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; color: var(--soft); }
 .how b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: white; margin-right: 10px; font-size: 12px; }
 .how em { color: var(--text); font-style: normal; font-weight: 700; }
-
-/* Vertical tree, for when the agents do not fit in one row */
-.am-map.vertical { justify-content: flex-start; padding: 16px 16px 0; }
-.am-map.vertical .tnode { align-items: flex-start; }
-.am-map.vertical .tkids, .am-map.vertical .root > .tkids { flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 10px 0 0 40px; row-gap: 10px; }
-.am-map.vertical .acard { width: min(560px, 70vw); }
-.am-map.vertical .acard .ac-desc { display: inline; }
 
 /* Timeline range buttons */
 .tl-range { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; }

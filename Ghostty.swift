@@ -88,6 +88,30 @@ final class Terminals {
         return .success(tid)
     }
 
+    /// Makes the tab holding this terminal the visible tab of its Ghostty window.
+    /// Ghostty does not come to the front, so the box keeps focus. Runs on `q`.
+    /// Voice needs it: Claude Code shows "listening" in a hidden tab but no words come.
+    @discardableResult
+    func showTab(_ tid: String) -> Bool {
+        let script = """
+            on run argv
+              set tid to item 1 of argv
+              tell application "Ghostty"
+                repeat with w in windows
+                  repeat with t in tabs of w
+                    if (id of terminals of t) contains tid then
+                      if not (selected of t) then select tab t
+                      return "ok"
+                    end if
+                  end repeat
+                end repeat
+              end tell
+              return ""
+            end run
+            """
+        return run("/usr/bin/osascript", ["-e", script, tid], wait: true) == "ok"
+    }
+
     /// Pastes `text` into the session's tab, then presses Enter.
     func send(_ text: String, to s: Session, done: @escaping (SendError?) -> Void) {
         q.async {

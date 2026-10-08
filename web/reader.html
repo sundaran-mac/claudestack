@@ -31,8 +31,9 @@
 
 <section id="agentsview" hidden>
   <div id="am-summary" class="am-summary"></div>
-  <div class="am-title">Map <span>who started whom, live</span></div>
-  <div id="am-mapwrap" class="am-mapwrap"><svg id="am-edges" class="am-edges"></svg><div id="am-map" class="am-map"></div></div>
+  <div class="am-title">Map <span>who started whom, live</span>
+    <div class="am-zoom"><button data-zoom="out" title="Zoom out">−</button><b id="am-zoomval">100%</b><button data-zoom="in" title="Zoom in">+</button><button data-zoom="fit" title="Fit the whole tree in the box">Fit</button></div></div>
+  <div id="am-mapwrap" class="am-mapwrap"><svg id="am-edges" class="am-edges"></svg><div id="am-sizer" class="am-sizer"><div id="am-map" class="am-map"></div></div></div>
   <div class="am-title">Timeline <span>what ran at the same time</span></div>
   <div id="am-timeline" class="am-timeline"></div>
   <div id="am-empty" class="am-empty" hidden></div>
