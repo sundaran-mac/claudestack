@@ -336,7 +336,8 @@ struct SettingsView: View {
                 DatePicker("", selection: Binding(
                     get: { c.time(value.wrappedValue, on: Date()) },
                     set: { value.wrappedValue = timeString($0) }), displayedComponents: .hourAndMinute)
-                    .labelsHidden().datePickerStyle(.stepperField).frame(width: 110)
+                    .labelsHidden().datePickerStyle(.stepperField)
+                    .controlSize(.regular)   // bigger than the mini switches, so the time is easy to read
             }
             if !note.isEmpty { Text(note).font(.system(size: 11)).foregroundColor(muted) }
         }
@@ -348,7 +349,8 @@ struct SettingsView: View {
                 Text(label).font(.system(size: 12.5, weight: .semibold))
                 Spacer()
                 Stepper("\(value.wrappedValue) min", value: value, in: range, step: step)
-                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .controlSize(.large)   // bigger than the mini switches, so the arrows are easy to click
             }
             if !note.isEmpty { Text(note).font(.system(size: 11)).foregroundColor(muted) }
         }

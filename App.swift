@@ -319,6 +319,27 @@ struct Main {
             MainActor.assumeIsolated { coachSnapshot(to: args[2]) }
             return
         }
+        // Test mode: print the screen of a session's Ghostty tab. Usage: ClaudeStack --screen <session id>
+        // Test mode: press keys in a session's Ghostty tab. Usage: ClaudeStack --keys <session id> down space enter
+        if args.count >= 3, args[1] == "--screen" || args[1] == "--keys" {
+            let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/stack/sessions/\(args[2]).json")
+            guard let data = try? Data(contentsOf: file), let s = try? JSONDecoder().decode(Session.self, from: data) else {
+                print("no session \(args[2])"); return
+            }
+            if args[1] == "--screen" {
+                print(Terminals.shared.q.sync { Terminals.shared.terminalId(for: s) }.flatMap(readScreen) ?? "(none)")
+            } else {
+                let sem = DispatchSemaphore(value: 0)
+                Terminals.shared.keys(args.dropFirst(3).map(ghosttyKeyName), to: s) { err in print(err.map { "\($0)" } ?? "ok"); sem.signal() }
+                sem.wait()
+            }
+            return
+        }
+        // Test mode: draw the Settings tab into a PNG. Usage: ClaudeStack --settings-snapshot out.png
+        if args.count >= 3, args[1] == "--settings-snapshot" {
+            MainActor.assumeIsolated { settingsSnapshot(to: args[2]) }
+            return
+        }
         // Test mode: a simulated workday, printing each reminder as it appears. Usage: ClaudeStack --coach-sim
         if args.count >= 2, args[1] == "--coach-sim" { coachSim(); return }
         // Test mode: print the input line of a Ghostty terminal. Usage: ClaudeStack --read-input <terminal id>
@@ -509,6 +530,22 @@ func coachSnapshot(to path: String) {
        let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
         try? png.write(to: URL(fileURLWithPath: path))
     }
+}
+
+/// Uses a real window, not ImageRenderer, because the time and minute boxes are AppKit controls
+/// that ImageRenderer draws as blank boxes.
+@MainActor
+func settingsSnapshot(to path: String) {
+    let store = UserDefaults(suiteName: "local.sundaran.claudestack.snapshot")!
+    let coach = DayCoach(store: store, useLog: false)
+    let host = NSHostingView(rootView: SettingsView(coach: coach, prefs: Prefs(store)).frame(width: 640, height: 900))
+    let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+    w.contentView = host
+    w.orderFrontRegardless()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+    host.cacheDisplay(in: host.bounds, to: rep)
+    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
 }
 
 /// Wednesday 2026-10-07, default hours. Busy all day except a 6-minute pause at 11:40 and lunch.
