@@ -658,9 +658,17 @@ document.addEventListener("mousedown", (e) => {
 $("back").onclick = () => post({ type: "closeAgent" });
 
 // ---------- Needs you ----------
+function stableJson(v) {
+  if (Array.isArray(v)) return "[" + v.map(stableJson).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + stableJson(v[k])).join(",") + "}";
+  return JSON.stringify(v);
+}
+
 function renderPending(p) {
   const box = $("pending");
-  const key = JSON.stringify(p || null) + sid;
+  // The app sends the same question again and again, with its fields in any order, so the
+  // key sorts them. Otherwise every update redraws the card and loses the picks.
+  const key = stableJson(p || null) + sid;
   if (key === lastPendingKey) return;
   lastPendingKey = key;
   if (!p) { box.hidden = true; box.innerHTML = ""; return; }
@@ -686,30 +694,9 @@ function renderPending(p) {
   const note = (t) => { const d = document.createElement("div"); d.className = "p-note"; d.textContent = t; box.appendChild(d); };
 
   if (p.kind === "question") {
-    title("Claude is asking you");
     const qs = p.questions || [];
-    const simple = qs.length === 1 && !qs[0].multiSelect;
-    if (!qs.length) { note("Claude asked a question in the tab."); openTab(row()); return; }
-    for (const q of qs) {
-      const d = document.createElement("div");
-      d.className = "p-q";
-      d.textContent = q.question || "";
-      box.appendChild(d);
-      const opts = document.createElement("div");
-      opts.className = "p-options";
-      (q.options || []).forEach((o, i) => {
-        const b = document.createElement("button");
-        b.className = "opt";
-        b.innerHTML = `<b>${esc(o.label)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ""}`;
-        if (simple) b.onclick = () => answer(Array(i).fill("down").concat(["enter"]), box);
-        else b.disabled = true;
-        opts.appendChild(b);
-      });
-      box.appendChild(opts);
-    }
-    if (!simple) note("This question has more than one part, or many answers. Please answer it in the tab.");
-    else note("To type your own answer, open the tab.");
-    openTab(row());
+    if (!qs.length) { title("Claude is asking you"); note("Claude asked a question in the tab."); openTab(row()); return; }
+    renderQuestions(box, qs, { title, row, note, openTab });
   } else if (p.kind === "permission") {
     title("Claude wants permission");
     const d = document.createElement("div");
@@ -738,6 +725,101 @@ function renderPending(p) {
     title("Claude needs you in the tab");
     openTab(row());
   }
+}
+
+// One question at a time, with a stepper on top. The picks are sent as the keys Claude Code's
+// question screen wants, checked on a real tab: Down moves, Enter picks one (and moves on) or
+// ticks a box in a many-answer question, Right moves on from a many-answer question, and
+// Enter on the review screen submits.
+let qMemo = { key: "", picks: [], step: 0 };
+function renderQuestions(box, qs, ui) {
+  const key = stableJson(qs) + sid;
+  if (qMemo.key !== key) qMemo = { key, picks: qs.map(() => []), step: 0 };
+  const picks = qMemo.picks;
+  let step = qMemo.step;
+  const draw = () => {
+    qMemo.step = step;
+    box.innerHTML = "";
+    ui.title("Claude is asking you");
+    const q = qs[step];
+    if (qs.length > 1) {
+      const bar = document.createElement("div");
+      bar.className = "p-steps";
+      qs.forEach((x, i) => {
+        const c = document.createElement("button");
+        c.className = "p-step" + (i === step ? " on" : "") + (picks[i].length ? " done" : "");
+        c.innerHTML = `<i>${picks[i].length && i !== step ? "✓" : i + 1}</i>${esc(x.header || "Question " + (i + 1))}`;
+        c.onclick = () => { step = i; draw(); };
+        bar.appendChild(c);
+      });
+      box.appendChild(bar);
+      const n = document.createElement("div");
+      n.className = "p-count";
+      n.textContent = `Question ${step + 1} of ${qs.length}`;
+      box.appendChild(n);
+    }
+    const d = document.createElement("div");
+    d.className = "p-q";
+    d.textContent = q.question || "";
+    box.appendChild(d);
+    const hint = document.createElement("div");
+    hint.className = "p-hint";
+    hint.textContent = q.multiSelect ? "Pick one or more" : "Pick one";
+    box.appendChild(hint);
+    const opts = document.createElement("div");
+    opts.className = "p-options";
+    (q.options || []).forEach((o, i) => {
+      const b = document.createElement("button");
+      const on = picks[step].includes(i);
+      b.className = "opt pick" + (q.multiSelect ? " multi" : "") + (on ? " on" : "");
+      b.innerHTML = `<i></i><div><b>${esc(o.label)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ""}</div>`;
+      b.onclick = () => {
+        if (!q.multiSelect) picks[step] = [i];
+        else picks[step] = on ? picks[step].filter((x) => x !== i) : picks[step].concat([i]).sort((a, c) => a - c);
+        draw();
+      };
+      opts.appendChild(b);
+    });
+    box.appendChild(opts);
+    const r = ui.row();
+    if (step > 0) {
+      const back = document.createElement("button");
+      back.className = "btn ghost";
+      back.textContent = "Back";
+      back.onclick = () => { step--; draw(); };
+      r.appendChild(back);
+    }
+    const last = step === qs.length - 1;
+    const go = document.createElement("button");
+    go.className = "btn primary";
+    go.textContent = last ? "Submit" : "Next";
+    go.disabled = !picks[step].length || (last && picks.some((x) => !x.length));
+    go.onclick = () => {
+      if (!last) { step++; draw(); return; }
+      box.querySelectorAll("button").forEach((x) => { x.disabled = true; });
+      post({ type: "keys", keys: questionKeys(qs, picks), expect: (qs[0].question || "").slice(0, 30), sid });
+    };
+    r.appendChild(go);
+    ui.openTab(r);
+    ui.note("To type your own answer, open the tab.");
+  };
+  draw();
+}
+
+function questionKeys(qs, picks) {
+  const keys = [];
+  const down = (n) => { for (let i = 0; i < n; i++) keys.push("down"); };
+  qs.forEach((q, i) => {
+    if (!q.multiSelect) { down(picks[i][0]); keys.push("enter"); return; }
+    let at = 0;
+    for (const p of picks[i]) { down(p - at); keys.push("enter"); at = p; }
+    // One question alone: go to its Submit row, under the options and "Type something".
+    if (qs.length === 1) { down((q.options || []).length + 1 - at); keys.push("enter"); }
+    else keys.push("right");
+  });
+  // "Submit answers" on the review screen. Only one plain one-answer question has no review screen.
+  if (qs.length > 1 || qs[0].multiSelect) keys.push("enter");
+  return keys;
 }
 
 function answer(keys, box) {

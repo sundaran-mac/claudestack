@@ -46,7 +46,7 @@ trap 'rmdir "$lock" 2>/dev/null' EXIT
 
 prev=$(cat "$file" 2>/dev/null)
 jq -e . >/dev/null <<<"$prev" || prev='{}'
-eval "$(jq -r '@sh "pstatus=\(.status // "") pagent=\(.pending_agent // "") ppid_=\(.pid // "")"' <<<"$prev")"
+eval "$(jq -r '@sh "pstatus=\(.status // "") preason=\(.reason // "") pagent=\(.pending_agent // "") ppid_=\(.pid // "")"' <<<"$prev")"
 
 status=""; reason=""; pending="$pagent"
 ltool=""; ptool=""
@@ -65,11 +65,21 @@ case "$event" in
     esac ;;
   PostToolUse|PostToolUseFailure)
     if [ "$pstatus" != "needs_input" ] || [ "$agent" = "$pagent" ]; then status="running"; fi ;;
+  # Claude Code also asks permission to show a question or a plan. Keep what it really is.
   PermissionRequest)
-    status="needs_input"; reason="Permission"; pending="$agent"; ptool="$tool" ;;
+    status="needs_input"; pending="$agent"; ptool="$tool"
+    case "$tool" in
+      AskUserQuestion) reason="Question" ;;
+      ExitPlanMode)    reason="Plan approval" ;;
+      *)               reason="Permission" ;;
+    esac ;;
   Notification)
     case "$ntype" in
-      permission_prompt) status="needs_input"; reason="Permission" ;;
+      permission_prompt)
+        status="needs_input"; reason="Permission"
+        if [ "$pstatus" = "needs_input" ]; then
+          case "$preason" in Question|"Plan approval") reason="$preason" ;; esac
+        fi ;;
       elicitation_dialog) status="needs_input"; reason="Question" ;;
       "") case "$nmsg" in *ermission*) status="needs_input"; reason="Permission" ;; esac ;;
     esac ;;

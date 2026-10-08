@@ -306,9 +306,9 @@ final class ReaderModel: NSObject, ObservableObject, WKScriptMessageHandler, WKN
             guard sameSession(), let row, let keys = body["keys"] as? [String] else {
                 return js("CS.sent", ["ok": false, "error": "You switched sessions. Nothing was sent."])
             }
-            let allowed: Set<String> = ["enter", "escape", "up", "down", "tab"]
+            let allowed: Set<String> = ["enter", "escape", "up", "down", "right", "tab"]
             guard keys.allSatisfy(allowed.contains) else { return }
-            Terminals.shared.keys(keys.map(ghosttyKeyName), to: row.s) { err in
+            Terminals.shared.keys(keys.map(ghosttyKeyName), to: row.s, expect: body["expect"] as? String) { err in
                 DispatchQueue.main.async { self.js("CS.sent", ["ok": err == nil, "error": err?.description ?? "", "quiet": true]) }
             }
         default: break
@@ -326,6 +326,7 @@ func ghosttyKeyName(_ k: String) -> String {
     switch k {
     case "up": return "arrowUp"
     case "down": return "arrowDown"
+    case "right": return "arrowRight"
     default: return k
     }
 }

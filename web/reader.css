@@ -174,6 +174,24 @@ pre.plain {
 .opt:hover { border-color: var(--orange); background: var(--elevated); }
 .opt b { display: block; font-weight: 700; }
 .opt span { display: block; color: var(--muted); font-size: 12.5px; }
+.p-steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.p-step {
+  display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 20px; padding: 4px 12px 4px 4px; color: var(--muted); font-weight: 700; font-size: 12.5px;
+}
+.p-step i { font-style: normal; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--elevated); font-size: 11.5px; }
+.p-step.done i { background: rgba(6,194,122,.2); color: #06C27A; }
+.p-step.on { border-color: var(--orange); color: var(--text); }
+.p-step.on i { background: var(--orange); color: #111; }
+.p-count { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.p-hint { color: var(--muted); font-size: 12.5px; margin: -4px 0 8px; }
+.opt.pick { display: flex; align-items: flex-start; gap: 10px; font-size: inherit; }
+.opt.pick i { flex: none; width: 16px; height: 16px; margin-top: 2px; border: 2px solid var(--muted); border-radius: 50%; }
+.opt.pick.multi i { border-radius: 4px; }
+.opt.pick.on { border-color: var(--orange); background: rgba(255,154,0,.1); }
+.opt.pick.on i { border-color: var(--orange); background: var(--orange); box-shadow: inset 0 0 0 2px var(--surface); }
+.opt.pick.multi.on i { box-shadow: none; display: grid; place-items: center; }
+.opt.pick.multi.on i::after { content: "✓"; color: #111; font-size: 11px; font-weight: 900; font-style: normal; line-height: 1; }
 .p-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .p-note { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
 .p-plan { max-height: 240px; overflow: auto; margin-bottom: 8px; padding: 8px 12px; background: var(--bg); border-radius: 8px; }

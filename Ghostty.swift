@@ -111,11 +111,19 @@ final class Terminals {
     }
 
     /// Presses keys in order, for example ["down", "down", "enter"]. Runs on `q`.
-    func keys(_ names: [String], to s: Session, done: @escaping (SendError?) -> Void) {
+    /// With `expect`, the keys go only when the tab's screen shows that text, so answers
+    /// never land in a question that is already gone.
+    func keys(_ names: [String], to s: Session, expect: String? = nil, done: @escaping (SendError?) -> Void) {
         q.async {
             switch self.target(s) {
             case .failure(let e): done(e)
             case .success(let tid):
+                if let expect, !expect.isEmpty {
+                    let flat = { (t: String) in t.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+                    guard let screen = readScreen(tid), flat(screen).contains(flat(expect)) else {
+                        return done(.failed("The question is not on the tab any more. Nothing was sent."))
+                    }
+                }
                 let lines = names.map { "send key \"\($0)\" to terminal id \"\(tid)\"\n    delay 0.08" }.joined(separator: "\n    ")
                 let out = run("/usr/bin/osascript", ["-e", "tell application \"Ghostty\"\n    \(lines)\nend tell\nreturn \"ok\""], wait: true)
                 done(out == "ok" ? nil : .failed(out.isEmpty ? "no answer" : out))
