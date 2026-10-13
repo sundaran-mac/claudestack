@@ -1,0 +1,9 @@
+#!/bin/bash
+# The Mac binary's test flags on Windows/WSL, so tests/run.sh runs unchanged.
+# --parse, --agents, --coach-sim run in the WSL backend. --scroll-test and the snapshots run in the Windows app.
+here="$(cd "$(dirname "$0")/.." && pwd)"
+case "$1" in
+  --parse|--agents|--coach-sim) exec node "$here/backend/cli.js" "$@" ;;
+  --scroll-test|--snapshot|--reader-snapshot|--coach-snapshot) exec "$here/bin/app-test" "$@" ;;
+  *) echo "Usage: claudestack --parse|--agents file.jsonl, --coach-sim, --scroll-test file.jsonl script.js" >&2; exit 2 ;;
+esac

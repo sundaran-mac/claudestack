@@ -1,0 +1,28 @@
+#!/bin/bash
+# Runs the Windows app's test modes from WSL, with Windows paths for every file it reads or writes.
+#   app-test --scroll-test transcript.jsonl script.js        prints the result
+#   app-test --reader-snapshot transcript.jsonl out.png [state.json]
+#   app-test --snapshot out.png [compact]  |  app-test --coach-snapshot out.png
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+exe="$(cat "$HOME/.claude/stack/app-path" 2>/dev/null)" || { echo "app-test: build the app first (win/install.sh)" >&2; exit 2; }
+temp="$(cd /mnt/c && /mnt/c/Windows/System32/cmd.exe /c echo %TEMP% | tr -d '\r')"
+t="$(wslpath -u "$temp")/claudestack-test-$$"
+mkdir -p "$t"
+trap 'rm -rf "$t"' EXIT
+w() { wslpath -w "$1"; }
+run() { (cd /mnt/c && "$(wslpath -u "$exe")" "$@") >/dev/null 2>&1 || true; }
+items() { node "$here/backend/cli.js" --parse "$1" | jq '.items' > "$t/items.json"; }
+case "$1" in
+  --scroll-test)
+    items "$2"; cp "$3" "$t/script.js"
+    run --scroll-test "$(w "$t/items.json")" "$(w "$t/script.js")" "$(w "$t/out.txt")"
+    cat "$t/out.txt" 2>/dev/null || echo "no result" ;;
+  --reader-snapshot)
+    items "$2"; [ -n "${4:-}" ] && cp "$4" "$t/state.json"
+    run --reader-snapshot "$(w "$t/items.json")" "$(w "$t/out.png")" ${4:+"$(w "$t/state.json")"}
+    cp "$t/out.png" "$3" ;;
+  --snapshot) run --snapshot "$(w "$t/out.png")" ${3:-}; cp "$t/out.png" "$2" ;;
+  --coach-snapshot) run --coach-snapshot "$(w "$t/out.png")"; cp "$t/out.png" "$2" ;;
+  *) echo "app-test: unknown flag $1" >&2; exit 2 ;;
+esac

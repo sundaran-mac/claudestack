@@ -2,7 +2,10 @@
 # Parser tests for the reader. Usage: tests/run.sh [path to ClaudeStack binary]
 set -uo pipefail
 cd "$(dirname "$0")"
-BIN="${1:-$HOME/Applications/ClaudeStack.app/Contents/MacOS/ClaudeStack}"
+MAC_BIN="$HOME/Applications/ClaudeStack.app/Contents/MacOS/ClaudeStack"
+# On Windows (WSL) the same flags are served by win/bin/claudestack.
+[ "$(uname)" = Linux ] && MAC_BIN="$PWD/../win/bin/claudestack"
+BIN="${1:-$MAC_BIN}"
 out=$("$BIN" --parse fixture.jsonl)
 fail=0
 check() { # name, jq expression that must print true

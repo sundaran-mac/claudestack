@@ -1,0 +1,19 @@
+#!/bin/bash
+# cs: start Claude Code inside tmux, so Claude Stack can type into it (Send, Stop, answers, voice).
+# Use it instead of `claude`; every argument is passed on. Each call is its own tmux session on a
+# separate tmux server (-L claudestack), so your own tmux is never touched. When Claude exits, the
+# session ends and the tab is back at your shell.
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
+# Already inside tmux: the hook sees $TMUX_PANE, so the app can type into this pane as it is.
+[ -n "$TMUX" ] && exec claude "$@"
+command -v tmux >/dev/null || { echo "cs: tmux is missing. Install it: sudo apt install tmux" >&2; exec claude "$@"; }
+
+# The tag goes into the tab title, so the app can find this exact Windows Terminal tab.
+tab="cs-$$"
+# The terminal outside tmux, because inside it TERM_PROGRAM says "tmux".
+outer="${TERM_PROGRAM:-}"
+[ -z "$outer" ] && [ -n "$WT_SESSION" ] && outer="WindowsTerminal"
+
+exec tmux -L claudestack -f "$here/tmux.conf" new-session -s "$tab" -c "$PWD" \
+  -e CS_TAB="$tab" -e CS_TERM="$outer" -e WT_SESSION="${WT_SESSION:-}" -- claude "$@"

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:">
+<title>Claude Stack</title>
+<link rel="stylesheet" href="ui.css">
+<link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<aside id="side">
+  <div class="top">
+    <div class="seg" id="tabs">
+      <button data-tab="chats">Chats</button><button data-tab="agents">Agents</button><button data-tab="settings">Settings</button>
+    </div>
+    <button id="pin" class="pin"></button>
+  </div>
+  <div id="strip"></div>
+  <div id="reminder"></div>
+  <div id="rows" class="rows"></div>
+</aside>
+<main id="settings" hidden></main>
+<script src="ui.js"></script>
+<script src="shell.js"></script>
+</body>
+</html>

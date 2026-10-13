@@ -1,0 +1,115 @@
+/* Shared look of the small stack and the reader sidebar. Port of Views.swift and DayViews.swift. */
+:root {
+  --bg: #0F1923; --surface: #1C2B3A; --elevated: #243447; --border: #2E3F50;
+  --text: #F0F4F8; --muted: #8A9BAE; --primary: #427BBF;
+  --needs: #FF9A00; --running: #5B9BE6; --stuck: #F4A500; --done: #06C27A; --ready: #5FA889; --idle: #8A9BAE;
+  --calm-blue: #5B9BE6; --calm-green: #06C27A; --calm-amber: #F4A500; --water: #4FC3F7;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  color: var(--text); font-size: 13px; -webkit-font-smoothing: antialiased; user-select: none; cursor: default;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.mono { font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace; }
+svg.i { width: 1em; height: 1em; fill: currentColor; flex: none; }
+
+/* ---------- A session row ---------- */
+.row {
+  --c: var(--running);
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: 10px; background: rgba(28, 43, 58, 0.6); border: 1.5px solid transparent;
+  cursor: pointer; position: relative;
+}
+.row:hover { background: var(--surface); }
+.row.selected { background: var(--elevated); border-color: var(--primary); }
+.row .ic { position: relative; width: 26px; height: 26px; flex: none; display: grid; place-items: center; color: var(--c); font-size: 12px; }
+.row .ic::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--c); opacity: 0.18; }
+.row .ic svg { position: relative; }
+.row .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .l1, .row .l2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.row .title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.row .bg { font-size: 9px; font-weight: 700; color: var(--muted); border: 1px solid var(--muted); border-radius: 4px; padding: 0 4px; flex: none; }
+.row .branch { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1000 auto; }
+.row .agents { font-size: 9px; font-weight: 700; color: var(--running); background: rgba(91, 155, 230, 0.15); border-radius: 20px; padding: 1px 5px; white-space: nowrap; flex: none; }
+.row .sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row .right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.row .detail { font-size: 11px; font-weight: 700; color: var(--c); white-space: nowrap; }
+.row .ago { font-size: 10px; color: var(--muted); }
+.row .expand { display: none; color: var(--text); font-size: 14px; padding: 2px; }
+.row:hover .expand { display: block; }
+
+/* Needs you: fast blink and a glowing border. Running: slow pulse. */
+.row.d-needs { animation: rowblink 0.625s ease-in-out infinite alternate; }
+.row.d-needs .ic::before { animation: dotblink 0.625s ease-in-out infinite alternate; }
+@keyframes rowblink {
+  from { background: rgba(255, 154, 0, 0.26); border-color: rgba(255, 154, 0, 1); }
+  to { background: rgba(255, 154, 0, 0.10); border-color: rgba(255, 154, 0, 0.4); }
+}
+@keyframes dotblink { from { opacity: 0.6; } to { opacity: 0.25; } }
+.row.d-running .ic svg { animation: pulse 1.67s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: 1; } to { opacity: 0.45; } }
+
+/* ---------- Day strip ---------- */
+.strip { padding: 8px 10px; border-radius: 10px; background: rgba(28, 43, 58, 0.7); display: flex; flex-direction: column; gap: 5px; }
+.strip.compact { padding: 5px 6px; background: rgba(28, 43, 58, 0.5); }
+.strip .top { display: flex; align-items: center; gap: 8px; }
+.strip .label { font-size: 11.5px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip.compact .label { font-size: 10.5px; }
+.strip .bar { height: 5px; border-radius: 3px; background: var(--surface); overflow: hidden; }
+.strip .bar span { display: block; height: 100%; border-radius: 3px; background: var(--calm-blue); transition: width 0.6s ease-in-out; min-width: 4px; }
+.strip.p-windDown .bar span { background: var(--calm-amber); }
+.strip.p-done .bar span { background: var(--calm-green); }
+.gauge { width: 20px; height: 20px; position: relative; flex: none; color: var(--gc); }
+.gauge svg.ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+.gauge svg.ring circle { fill: none; stroke-width: 2.5; }
+.gauge svg.ring .track { stroke: var(--gc); opacity: 0.18; }
+.gauge svg.ring .val { stroke: var(--gc); stroke-linecap: round; transition: stroke-dashoffset 0.6s ease-in-out; }
+.gauge svg.i { position: absolute; left: 6px; top: 6px; width: 8px; height: 8px; }
+
+/* ---------- Reminder card ---------- */
+.card {
+  --rc: var(--water);
+  padding: 12px; border-radius: 12px; display: flex; flex-direction: column; gap: 8px;
+  background: color-mix(in srgb, var(--rc) 10%, transparent);
+  border: 1.2px solid color-mix(in srgb, var(--rc) 50%, transparent);
+  animation: cardin 0.3s ease-out, cardglow 4s ease-in-out infinite alternate;
+}
+@keyframes cardin { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes cardglow { from { border-color: color-mix(in srgb, var(--rc) 60%, transparent); } to { border-color: color-mix(in srgb, var(--rc) 35%, transparent); } }
+.card .head { display: flex; gap: 12px; align-items: flex-start; }
+.card .art { width: 44px; height: 44px; flex: none; position: relative; color: var(--rc); }
+.card .words { display: flex; flex-direction: column; gap: 3px; }
+.card .t { font-size: 13.5px; font-weight: 700; }
+.card .b { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.card .btns { display: flex; gap: 8px; }
+.cbtn {
+  --bc: var(--water);
+  font-size: 11.5px; font-weight: 700; padding: 5px 12px; border-radius: 8px;
+  border: 1px solid var(--bc); color: var(--bc);
+}
+.cbtn.filled { background: var(--bc); color: var(--bg); border-color: transparent; }
+.cbtn:active { opacity: 0.7; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.grid div { background: var(--surface); border-radius: 8px; padding: 5px 0; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.grid b { font-size: 14px; }
+.grid span { font-size: 9.5px; font-weight: 600; color: var(--muted); }
+
+/* Art: water drop that fills with a slow wave, a breathing circle, rings. */
+.art svg { width: 100%; height: 100%; overflow: visible; }
+.art .wave { animation: wave 2.8s linear infinite; }
+@keyframes wave { from { transform: translateX(0); } to { transform: translateX(-24px); } }
+.art .level { animation: level 4.5s ease-in-out infinite alternate; }
+@keyframes level { from { transform: translateY(1.5px); } to { transform: translateY(-1.5px); } }
+.art .breath { position: absolute; inset: 0; border-radius: 50%; background: var(--rc); animation: breath 8s ease-in-out infinite; }
+@keyframes breath { 0%, 100% { transform: scale(0.7); opacity: 0.12; } 50% { transform: scale(1); opacity: 0.24; } }
+.art .center { position: absolute; inset: 0; display: grid; place-items: center; font-size: 17px; }
+.art .num { font-size: 13px; font-weight: 700; }
+.art .draw { stroke-dasharray: 126; animation: draw 6s ease-out infinite; }
+@keyframes draw { 0% { stroke-dashoffset: 126; } 20%, 100% { stroke-dashoffset: 0; } }
+.art .tick { animation: tickin 6s ease-out infinite; }
+@keyframes tickin { 0% { opacity: 0; } 20%, 100% { opacity: 1; } }
+.art .soft { animation: soft 4s ease-in-out infinite alternate; }
+@keyframes soft { from { opacity: 1; } to { opacity: 0.7; } }

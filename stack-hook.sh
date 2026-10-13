@@ -6,6 +6,8 @@
 DIR="$HOME/.claude/stack/sessions"
 APP="$HOME/Applications/ClaudeStack.app"
 exec 2>/dev/null
+# WSL often runs on UTC. The Windows app saves the real time zone in tz; use it for dates and hours.
+[ -z "$TZ" ] && [ -s "$HOME/.claude/stack/tz" ] && export TZ="$(cat "$HOME/.claude/stack/tz")"
 
 input=$(cat)
 mkdir -p "$DIR"
@@ -30,16 +32,29 @@ if [ "$event" = "SessionEnd" ]; then
 fi
 
 start_app() {
-  [ -d "$APP" ] || return
-  pgrep -xq ClaudeStack || open -g "$APP"
+  if [ "$(uname)" = Darwin ]; then
+    [ -d "$APP" ] || return
+    pgrep -xq ClaudeStack || open -g "$APP"
+    return
+  fi
+  # Windows (WSL): the app writes a heartbeat every second. No heartbeat for 5 s: start it.
+  # win/install.sh saves the app's Windows path in app-path. Started in the background, so the hook stays fast.
+  local exe beat
+  exe=$(cat "$HOME/.claude/stack/app-path" 2>/dev/null)
+  [ -n "$exe" ] || return
+  beat=$(stat -c %Y "$HOME/.claude/stack/app.alive" 2>/dev/null || echo 0)
+  [ $(( now - beat )) -lt 5 ] && return
+  # Every stream goes to /dev/null, so nothing holds Claude's pipe to this hook open.
+  (cd /mnt/c 2>/dev/null; setsid /mnt/c/Windows/System32/cmd.exe /c start "" "$exe" &) </dev/null >/dev/null 2>&1
 }
 
 # Small lock, so parallel tool hooks do not overwrite each other.
 lock="$file.lock"
 for _ in $(seq 1 50); do
   mkdir "$lock" 2>/dev/null && break
-  # A lock older than 5 s is left over from a killed hook.
-  if [ -n "$(find "$lock" -maxdepth 0 -mtime +5s 2>/dev/null)" ]; then rmdir "$lock"; fi
+  # A lock older than 5 s is left over from a killed hook. (GNU stat on Linux, BSD stat on the Mac.)
+  m=$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)
+  if [ -n "$m" ] && [ $(( $(date +%s) - m )) -gt 5 ]; then rmdir "$lock"; fi
   sleep 0.02
 done
 trap 'rmdir "$lock" 2>/dev/null' EXIT
@@ -109,13 +124,17 @@ jq -n --argjson prev "$prev" \
   --arg sid "$sid" --arg cwd "$cwd" --arg status "$status" --arg reason "$reason" \
   --arg prompt "$prompt" --arg branch "$branch" --arg pid "$pid" --arg tty "$tty" \
   --arg ltool "$ltool" --arg ptool "$ptool" --arg detail "$detail" \
-  --arg tpath "$tpath" --arg term "${TERM_PROGRAM:-}" --arg pending "$pending" --argjson now "$now" '
+  --arg tpath "$tpath" --arg term "${CS_TERM:-${TERM_PROGRAM:-}}" --arg pending "$pending" --argjson now "$now" \
+  --arg tpane "${TMUX_PANE:-}" --arg tsock "${TMUX%%,*}" --arg cstab "${CS_TAB:-}" --arg wts "${WT_SESSION:-}" '
   $prev
   + {session_id: $sid, updated_at: $now, term: (if $term != "" then $term else ($prev.term // "") end)}
   + (if $cwd != "" then {cwd: $cwd, project: ($cwd | rtrimstr("/") | split("/") | last)} else {} end)
   + (if $prev.started_at == null then {started_at: $now} else {} end)
   + (if $pid != "" then {pid: ($pid | tonumber)} else {} end)
-  + (if $tty != "" and $tty != "??" then {tty: $tty} else {} end)
+  + (if $tty != "" and $tty != "??" and $tty != "?" then {tty: $tty} else {} end)
+  + (if $tpane != "" then {tmux_pane: $tpane, tmux_socket: $tsock} else {} end)
+  + (if $cstab != "" then {cs_tab: $cstab} else {} end)
+  + (if $wts != "" then {wt_session: $wts} else {} end)
   + (if $branch != "" then {branch: $branch} else {} end)
   + (if $tpath != "" then {transcript_path: $tpath} else {} end)
   + (if $prompt != "" then {prompt: $prompt} else {} end)

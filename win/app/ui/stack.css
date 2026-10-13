@@ -1,0 +1,24 @@
+/* The small floating stack. The window is transparent; the margin leaves room for the shadow. */
+html, body { background: transparent; overflow: hidden; }
+#wrap { display: inline-block; padding: 8px; }
+#box {
+  width: 320px; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  background: rgba(15, 25, 35, 0.96); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+}
+#box.compact { width: auto; }
+#box.needs { border-width: 2px; animation: boxblink 0.625s ease-in-out infinite alternate; }
+@keyframes boxblink { from { border-color: rgba(255, 154, 0, 1); } to { border-color: rgba(255, 154, 0, 0.35); } }
+.head { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
+.head .logo { color: var(--needs); font-size: 14px; display: flex; }
+.head .name { font-size: 12px; font-weight: 700; }
+.head .spacer { flex: 1; }
+.head .count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.head .count.needs { color: var(--needs); font-weight: 700; }
+.head .open { width: 22px; height: 20px; border-radius: 6px; background: var(--surface); color: var(--muted); display: grid; place-items: center; font-size: 11px; }
+.head .open:hover { color: var(--text); }
+.pill { display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; color: var(--c); }
+.pill svg { font-size: 10px; }
+.pill.d-needs svg { animation: dotblink2 0.625s ease-in-out infinite alternate; }
+@keyframes dotblink2 { from { opacity: 1; } to { opacity: 0.3; } }
+.rows { display: flex; flex-direction: column; gap: 6px; }

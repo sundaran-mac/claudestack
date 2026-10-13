@@ -4,6 +4,8 @@ A small floating box for macOS that shows every Claude Code session and its live
 When you run many Claude tabs at once, it tells you which tab needs you, which one is done,
 and which one is still working. Nothing waits silently in a hidden tab.
 
+On Windows (Claude Code in WSL), see [Windows](#windows) at the end.
+
 ## What it shows
 
 | Status | Colour | Meaning |
@@ -225,3 +227,76 @@ rm -rf ~/Applications/ClaudeStack.app ~/.claude/stack
 
 Everything stays on your Mac. Session files hold your last prompt (first 80 characters), so the
 `sessions/` folder is in `.gitignore` and is never committed.
+
+## Windows
+
+The same app for Windows 11, with Claude Code running in WSL (Ubuntu). It has every feature above.
+Two things work differently, and `WINDOWS-PLAN.md` explains why:
+
+- **Start Claude with `cs` instead of `claude`.** `cs` runs Claude inside tmux, on its own tmux
+  server, so the app can type into it (Send, Stop, answers, voice). Every argument is passed on:
+  `cs --resume` works. Plain `claude` tabs still show rows, status, the reader and agents, but you
+  cannot send to them from the box.
+- **Windows Terminal instead of Ghostty.** Clicking a row selects that exact tab: tmux puts a tag
+  such as `[cs-1234]` in the tab title, and the app finds it.
+
+### Requirements
+
+- Windows 11 with WSL (Ubuntu), and Windows Terminal
+- In WSL: `sudo apt install tmux jq` and Node 18 or newer
+- On Windows: Node.js from nodejs.org (it builds the app; Electron is downloaded once)
+- Claude Code installed in WSL
+
+### Install
+
+Run inside WSL. The README's Mac steps 1 to 3 become one script:
+
+```sh
+git clone https://github.com/sundaran-mac/claudestack.git ~/.claude/stack
+~/.claude/stack/win/install.sh             # add --day-hook for the evening time check (step 3b)
+```
+
+It builds `%LOCALAPPDATA%\ClaudeStack\build\dist\ClaudeStack-win32-x64\ClaudeStack.exe`, adds the
+hook to the nine events (once: running it again never adds a second copy, and a backup is kept at
+`settings.json.bak-claude-stack`), links `cs` into `~/.local/bin`, and starts the app. After that,
+the app starts by itself on the next Claude event, like on the Mac. Run it again after you change
+the code.
+
+Open a new Windows Terminal tab and run `cs`.
+
+### Differences from the Mac
+
+| Mac | Windows |
+|---|---|
+| Mac banner (as "Script Editor") | Windows notification. Click it to jump to that tab |
+| Sounds Glass, Pop, Tink | Windows sounds from `C:\Windows\Media` |
+| Cmd+C, Cmd+V, Cmd+Enter | Ctrl+C, Ctrl+V, Ctrl+Enter |
+| Cmd+Shift+T: keep on top | Ctrl+Shift+T, or the pin above the session list |
+| Settings in UserDefaults | `%APPDATA%\ClaudeStack\prefs.json`; the coach's daily numbers in `~/.claude/stack/days/<date>.coach.json` |
+| Voice: Claude Code's voice mode in Ghostty | The same, through tmux. It needs Claude Code voice to work in WSL (a microphone in WSL) |
+| `day-hook.sh` says "Sundaran" | It reads `"name"` from `~/.claude/stack/day.json` ("The user" if not set) |
+
+### Tests
+
+```sh
+tests/run.sh               # the Mac suite; on Linux it uses win/bin/claudestack and the built app
+win/tests/hook-test.sh     # the hook in a temporary HOME
+node win/tests/tmux-test.js  # Send, keys, input line and the tty check against a fake Claude in tmux
+win/bin/app-test --snapshot out.png   # also --coach-snapshot, --reader-snapshot transcript.jsonl out.png
+```
+
+### Remove it
+
+```sh
+~/.claude/stack/win/install.sh --remove
+```
+
+### Troubleshooting
+
+| Problem | Check |
+|---|---|
+| The box never shows | Is `stack-hook.sh` in `~/.claude/settings.json`? Do files appear in `~/.claude/stack/sessions/`? Is `~/.claude/stack/app-path` there? |
+| Send is greyed: "started with plain claude" | Start Claude with `cs` |
+| `cs: command not found` | Add `~/.local/bin` to your PATH in `~/.zshrc` or `~/.bashrc` |
+| A click brings Windows Terminal forward but not the tab | Windows Terminal may hide app titles: Settings, your profile, Advanced, turn off "Suppress title changes" |
+| The app shows nothing at all | `%APPDATA%\ClaudeStack\backend.log` has the WSL side's errors |

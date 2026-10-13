@@ -1,11 +1,15 @@
-// Claude Stack reader page. Swift calls CS.* and the page answers through post().
+// Claude Stack reader page. The app (Swift on the Mac, Electron on Windows) calls CS.* and the page
+// answers through post().
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 const post = (msg) => {
   const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cs;
   if (h) h.postMessage(msg);
+  else if (window.csBridge) window.csBridge.post(msg);
 };
+// Shortcuts use Cmd on the Mac and Ctrl on Windows.
+const isMac = !!(window.webkit && window.webkit.messageHandlers);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ---------- Markdown ----------
@@ -1071,7 +1075,7 @@ function flushSpace() {
 }
 function startVoice() {
   // Spaces sent to a tab that shows a question or permission menu would pick an option there.
-  if (!state.canSend) return toast(state.block || "Voice works only in Ghostty tabs.", false);
+  if (!state.canSend) return toast(state.block || "Voice works only in tabs the app can type into.", false);
   if (state.pending) return toast("Claude is waiting for your answer above. Answer that first, then speak.", false);
   voiceOn = true;
   const s = input.selectionStart, e = input.selectionEnd;
@@ -1120,7 +1124,8 @@ input.addEventListener("input", () => { drafts[sid] = input.value; autosize(); u
 
 // The panel has no Edit menu, so the usual shortcuts are handled here.
 document.addEventListener("keydown", (e) => {
-  if (!e.metaKey || e.ctrlKey || e.altKey) return;
+  const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  if (!mod || e.altKey) return;
   const k = e.key.toLowerCase();
   const inInput = document.activeElement === input;
   if (k === "c" || k === "x") {

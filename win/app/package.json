@@ -1,0 +1,16 @@
+{
+  "name": "claudestack",
+  "productName": "ClaudeStack",
+  "version": "1.0.0",
+  "description": "Every Claude Code session and its live status, in one small floating box.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-packager . ClaudeStack --platform=win32 --arch=x64 --icon=icon.ico --out=dist --overwrite --ignore=^/dist"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.7.0"
+  }
+}

@@ -7,3 +7,6 @@ days/
 day.json
 sign-identity
 voice.log
+app-path
+app.alive
+tz
