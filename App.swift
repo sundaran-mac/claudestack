@@ -62,11 +62,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.layout() })
         }
-        // The day coach counts work time every 5 seconds. Busy: any session running or waiting for you.
-        coach.tick(busy: false)
+        // The day coach counts work time every 5 seconds.
+        coach.tick(busy: false, ghosttyOpened: ghosttyOpened())
         coachTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             guard let self else { return }
-            self.coach.tick(busy: self.store.rows.contains { $0.display == .running || $0.display == .needs })
+            self.coach.tick(busy: claudeWorking(self.store.rows, now: self.store.now), ghosttyOpened: ghosttyOpened())
         }
         observers.append(coach.objectWillChange.sink { [weak self] _ in
             DispatchQueue.main.async { self?.layout() }
@@ -521,7 +521,8 @@ func coachSnapshot(to path: String) {
         return c
     }
     let cases: [(Reminder, String)] = [(.water, "working"), (.rest, "working"), (.lunch, "working"),
-                                       (.windDown(minutesLeft: 25), "windDown"), (.dayDone, "done"), (.overtime(minutes: 30), "done")]
+                                       (.windDown(minutesLeft: 25), "windDown"), (.dayDone, "done"), (.overtime(minutes: 30), "done"),
+                                       (.onLunch, "working"), (.backFromLunch(minutes: 42), "working")]
     let view = HStack(alignment: .top, spacing: 16) {
         ForEach(0..<2) { col in
             VStack(alignment: .leading, spacing: 12) {
@@ -614,6 +615,7 @@ func coachSim() {
     for _ in 0..<(4 * 720) { sat.tick(busy: true, idle: 2, now: s); if sat.reminder != nil { any = true }; s = s.addingTimeInterval(5) }
     print("saturday phase=\(sat.phase) reminders=\(any)")
     autoStartSim()
+    agentWorkSim()
 }
 
 /// "Find my start time automatically", 8 hours. Wednesday 2026-10-08: away until 09:12, then at
@@ -660,7 +662,7 @@ func autoStartSim() {
     print("auto start=\(h.start.map(clock) ?? "-") end=\(h.end.map(clock) ?? "-") check=\(h.checkFrom.map(clock) ?? "-")")
     print("auto no reminders before start=\(!beforeReminder) phase=\(c.phase)")
 
-    // Input before 5 AM (work after midnight) does not start the day.
+    // The day resets at midnight: input at 04:30 starts it.
     let n = fresh("local.sundaran.claudestack.sim4")
     n.tick(busy: false, idle: 2, now: at(8, 4, 30))
     print("auto 04:30 input starts day=\(n.hours(on: at(8, 4, 30)).start != nil)")
@@ -681,4 +683,94 @@ func autoStartSim() {
     let sat = fresh("local.sundaran.claudestack.sim6")
     sat.tick(busy: false, idle: 2, now: at(10, 9, 30))
     print("auto saturday phase=\(sat.phase) started=\(sat.hours(on: at(10, 9, 30)).start != nil)")
+}
+
+/// Work with Claude: watching agents, phone prompts, "Going for lunch", and the midnight start.
+/// Wednesday 2026-10-08, automatic day of 8 hours, lunch hours 13:00 to 13:45.
+func agentWorkSim() {
+    let cal = Calendar.current
+    func at(_ h: Int, _ m: Int, day: Int = 8) -> Date { cal.date(from: DateComponents(year: 2026, month: 10, day: day, hour: h, minute: m))! }
+    func fresh(_ name: String) -> DayCoach {
+        let s = UserDefaults(suiteName: name)!
+        s.removePersistentDomain(forName: name)
+        let c = DayCoach(store: s, useLog: false)
+        c.soundOn = false
+        c.config = DayConfig()
+        return c
+    }
+    /// Ticks every 5 s from `from` to `to`. `idle(t)` is seconds since the last input.
+    func run(_ c: DayCoach, _ from: Date, _ to: Date, busy: Bool, prompt: ((Date) -> Double?)? = nil, idle: (Date) -> Double) {
+        var t = from
+        while t < to { c.tick(busy: busy, idle: idle(t), now: t, lastPromptAt: prompt?(t)); t = t.addingTimeInterval(5) }
+    }
+    func since(_ d: Date) -> (Date) -> Double { { $0.timeIntervalSince(d) + 1 } }
+
+    // 40 minutes watching an agent, no keyboard: all work, and not a break.
+    let a = fresh("local.sundaran.claudestack.sim7")
+    run(a, at(9, 0), at(9, 20), busy: false) { _ in 0 }
+    run(a, at(9, 20), at(10, 0), busy: true, idle: since(at(9, 20)))
+    print("agent watch work=\(hm(a.summary.workSecs)) breaks=\(a.summary.breaks)")
+
+    // Replies from the phone only: a prompt every 4 minutes keeps work time going.
+    let p = fresh("local.sundaran.claudestack.sim8")
+    run(p, at(9, 0), at(9, 10), busy: false) { _ in 0 }
+    run(p, at(9, 10), at(9, 50), busy: false, prompt: { t in
+        let m = Int(t.timeIntervalSince(at(9, 10)) / 240); return at(9, 10).addingTimeInterval(Double(m * 240)).timeIntervalSince1970
+    }, idle: since(at(9, 10)))
+    print("phone prompts work=\(hm(p.summary.workSecs)) breaks=\(p.summary.breaks)")
+
+    // Away with nothing running: still a break after 10 minutes.
+    let b = fresh("local.sundaran.claudestack.sim9")
+    run(b, at(9, 0), at(11, 0), busy: false) { _ in 0 }
+    run(b, at(11, 0), at(11, 15), busy: false, idle: since(at(11, 0)))
+    print("away idle breaks=\(b.summary.breaks)")
+
+    // A stuck session and an old question do not count; a running one and a new question do.
+    func row(_ status: String, updated: Double, since: Double) -> Row {
+        let j = #"{"session_id":"s","status":"\#(status)","updated_at":\#(updated),"status_since":\#(since)}"#
+        return Row(try! JSONDecoder().decode(Session.self, from: Data(j.utf8)), now: 10_000)
+    }
+    print("claude working running=\(claudeWorking([row("running", updated: 9_900, since: 9_000)], now: 10_000))"
+        + " stuck=\(claudeWorking([row("running", updated: 9_000, since: 9_000)], now: 10_000))"
+        + " needs new=\(claudeWorking([row("needs_input", updated: 9_800, since: 9_800)], now: 10_000))"
+        + " needs old=\(claudeWorking([row("needs_input", updated: 9_000, since: 9_000)], now: 10_000))")
+
+    // Lunch: start 09:00, go at 13:00, agents run, a short touch at 13:05 is not "back",
+    // the first input after 13:50 is. Work stops for the whole lunch, and the end moves to 17:50.
+    let l = fresh("local.sundaran.claudestack.sim10")
+    run(l, at(9, 0), at(13, 0), busy: false) { _ in 0 }
+    let canGo = l.canGoLunch
+    let before = l.summary.workSecs
+    l.goLunch(now: at(13, 0))
+    run(l, at(13, 0), at(13, 5), busy: true, idle: since(at(13, 0)))
+    l.tick(busy: true, idle: 0, now: at(13, 5))
+    let stillOut = l.onLunch
+    run(l, at(13, 5), at(13, 50), busy: true, idle: since(at(13, 5)))
+    l.tick(busy: true, idle: 0, now: at(13, 50))
+    let back: String
+    if case .backFromLunch(let m)? = l.reminder { back = "\(m)" } else { back = "-" }
+    print("lunch can go=\(canGo) out at 13:05=\(stillOut) back=\(back) min work during lunch=\(hm(l.summary.workSecs - before)) end=\(l.hours(on: at(14, 0)).end.map(clock) ?? "-") card=\(l.reminder.map { "\($0)" } ?? "-")")
+    l.done()
+    print("lunch after ok card=\(l.reminder.map { "\($0)" } ?? "none") can go=\(l.canGoLunch) rest=\(l.restFraction < 0.01)")
+
+    // "I'm back" by the button ends lunch at once.
+    let k = fresh("local.sundaran.claudestack.sim11")
+    run(k, at(9, 0), at(12, 30), busy: false) { _ in 0 }
+    k.goLunch(now: at(12, 30))
+    run(k, at(12, 30), at(13, 0), busy: false, idle: since(at(12, 30)))
+    k.done()
+    print("lunch button back onLunch=\(k.onLunch) end=\(k.hours(on: at(14, 0)).end.map(clock) ?? "-")")
+
+    // Midnight: a running agent alone does not start the day; input at 00:30 does.
+    // Ghostty opened at 04:00 and the app started at 09:00: the day starts at 04:00.
+    let m = fresh("local.sundaran.claudestack.sim12")
+    m.tick(busy: true, idle: 4000, now: at(0, 10))
+    let agentStart = m.hours(on: at(0, 10)).start != nil
+    m.tick(busy: false, idle: 0, now: at(0, 30))
+    print("midnight agent starts day=\(agentStart) input start=\(m.hours(on: at(0, 30)).start.map(clock) ?? "-")")
+    let g = fresh("local.sundaran.claudestack.sim13")
+    g.tick(busy: false, idle: 0, now: at(9, 0), ghosttyOpened: at(4, 0))
+    let y = fresh("local.sundaran.claudestack.sim14")
+    y.tick(busy: false, idle: 0, now: at(9, 0), ghosttyOpened: at(22, 0, day: 7))
+    print("ghostty start today=\(g.hours(on: at(9, 0)).start.map(clock) ?? "-") yesterday=\(y.hours(on: at(9, 0)).start.map(clock) ?? "-")")
 }

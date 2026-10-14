@@ -1,9 +1,11 @@
 // The day coach: work time, water and rest reminders, lunch, the end of the day, and today's numbers.
-// The day starts at a fixed time, or (the default) at your first keyboard or mouse use, and then
-// ends after your work hours plus lunch.
-// Work time counts while you use the Mac: any keyboard or mouse input in the last 5 minutes.
-// Ten minutes with no input is a break. A shorter pause (reading an answer, a short call) stops
-// work time but is not a rest, so the rest timer keeps going. This measures you, not Claude.
+// The day starts at a fixed time, or (the default) at your first use after midnight: keyboard or
+// mouse, a prompt, a new Claude session, or opening Ghostty. It ends after your work hours plus lunch.
+// Work time counts while you work with Claude: any keyboard or mouse input in the last 5 minutes,
+// a prompt in the last 5 minutes (from the phone too), or a session that is running. Watching an
+// agent for 40 minutes is work. Going for lunch stops it, even while agents run.
+// Ten minutes with no input, no prompt and nothing running is a break. A shorter pause stops work
+// time but is not a rest, so the rest timer keeps going.
 import AppKit
 import CoreGraphics
 import Foundation
@@ -13,14 +15,27 @@ func userIdleSeconds() -> Double {
     CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
 }
 
+/// Claude is working for you: a session is running, or asked you something under 10 minutes
+/// ago. "Maybe stuck" and a question left for an hour do not count.
+func claudeWorking(_ rows: [Row], now: Double) -> Bool {
+    rows.contains { $0.display == .running || ($0.display == .needs && now - $0.since < 600) }
+}
+
+/// When Ghostty started, if it is open. The day can start then.
+func ghosttyOpened() -> Date? {
+    NSRunningApplication.runningApplications(withBundleIdentifier: "com.mitchellh.ghostty").compactMap(\.launchDate).min()
+}
+
 /// No input for this long and work time stops counting.
 let activeWithin: Double = 300
 /// No input for this long is a real break, and the rest timer starts again. Five minutes was too
 /// short: reading an answer or a call reset the timer many times a day, so rest never came.
 let breakAfter: Double = 600
-/// With "Find my start time automatically", input before this hour does not start the day, so
-/// work after midnight is not taken as the next day's start.
-let earliestStartHour = 5
+/// With "Find my start time automatically", the day resets at midnight and your first use after
+/// it starts the new day (Sundaran's choice, 2026-10-14). A running agent alone does not start it.
+let earliestStartHour = 0
+/// "I'm back" comes by itself on the first keyboard or mouse use after this much lunch.
+let lunchAutoBack: Double = 600
 /// The time check for new tasks starts this many minutes before an automatic day ends.
 let autoCheckMinutes = 30
 
@@ -78,8 +93,10 @@ struct DayConfig: Codable, Equatable {
 
     /// With autoStart: the end of a day that started at `start`. Lunch is not work time, so the
     /// part of lunch after the start is added. A day that ends before lunch skips it.
-    func autoEnd(from start: Date) -> Date {
+    /// `lunchSecs`: the real lunch, once you used "Going for lunch". It replaces the lunch hours.
+    func autoEnd(from start: Date, lunchSecs: Double? = nil) -> Date {
         let work = Double(workMinutes * 60)
+        if let l = lunchSecs { return start.addingTimeInterval(work + l) }
         let ls = time(lunchStart, on: start), le = time(lunchEnd, on: start)
         let lunchAfterStart = max(0, le.timeIntervalSince(max(start, ls)))
         if start.addingTimeInterval(work) <= ls { return start.addingTimeInterval(work) }
@@ -94,6 +111,7 @@ func hoursText(_ minutes: Int) -> String {
 
 enum Reminder: Equatable {
     case water, rest, lunch, windDown(minutesLeft: Int), dayDone, overtime(minutes: Int)
+    case onLunch, backFromLunch(minutes: Int)
 }
 
 struct DaySummary {
@@ -109,6 +127,10 @@ final class DayCoach: ObservableObject {
     @Published var waterFraction: Double = 0 // fills up to the next water reminder
     @Published var restFraction: Double = 0
     @Published var minutesLeft = 0
+    /// You tapped "Going for lunch" and are not back yet. Work time stops.
+    @Published var onLunch = false
+    /// The Today strip shows "Going for lunch" until lunch is done for today.
+    @Published var canGoLunch = false
 
     var config = DayConfig.load()
     var soundOn = UserDefaults.standard.object(forKey: "coachSound") as? Bool ?? true
@@ -134,6 +156,19 @@ final class DayCoach: ObservableObject {
     private var restAt: Double { get { d.double(forKey: key("restAt")) } set { d.set(newValue, forKey: key("restAt")) } }
     /// With autoStart: when today started, as seconds since 1970. 0 means not started yet.
     private var startedAt: Double { get { d.double(forKey: key("startedAt")) } set { d.set(newValue, forKey: key("startedAt")) } }
+    /// "Going for lunch": when you left, as seconds since 1970. 0 means not on lunch.
+    private var lunchOut: Double { get { d.double(forKey: key("lunchOut")) } set { d.set(newValue, forKey: key("lunchOut")) } }
+    /// The real lunch so far today, in seconds. Used for the day's end once you went for lunch.
+    private var lunchSecs: Double { get { d.double(forKey: key("lunchSecs")) } set { d.set(newValue, forKey: key("lunchSecs")) } }
+
+    /// The lunch the day's end uses: nil (the lunch hours in Settings) until you go for lunch.
+    /// While you are away it is never shorter than the lunch hours, so the end does not jump back.
+    private func realLunch(_ c: DayConfig, now: Date) -> Double? {
+        guard flag("lunchReal") else { return nil }
+        guard lunchOut > 0 else { return lunchSecs }
+        let planned = c.time(c.lunchEnd, on: now).timeIntervalSince(c.time(c.lunchStart, on: now))
+        return max(lunchSecs + now.timeIntervalSince1970 - lunchOut, planned)
+    }
 
     /// Today's start, end and time-check hour. Without autoStart they are the hours in Settings.
     /// With autoStart, the start is nil until your first input today, and so is the end.
@@ -144,7 +179,7 @@ final class DayCoach: ObservableObject {
             return Hours(start: c.time(c.start, on: now), end: c.time(c.end, on: now), checkFrom: c.time(c.checkFrom, on: now))
         }
         guard Self.dayString(now) == day, startedAt > 0 else { return Hours() }
-        let s = Date(timeIntervalSince1970: startedAt), e = c.autoEnd(from: s)
+        let s = Date(timeIntervalSince1970: startedAt), e = c.autoEnd(from: s, lunchSecs: realLunch(c, now: now))
         return Hours(start: s, end: e, checkFrom: e.addingTimeInterval(Double(-autoCheckMinutes * 60)))
     }
 
@@ -191,9 +226,10 @@ final class DayCoach: ObservableObject {
         tick(busy: false)
     }
 
-    /// `idle`: seconds since your last keyboard or mouse input. `busy` is kept for the caller's
-    /// sake and no longer decides work time.
-    func tick(busy: Bool, idle: Double? = nil, now: Date = Date()) {
+    /// `busy`: a Claude session is working for you (running, or asking you for under 10 minutes).
+    /// `idle`: seconds since your last keyboard or mouse input. `ghosttyOpened`: when Ghostty
+    /// started. `lastPromptAt`: tests pass it; the app reads your last prompt from today's log.
+    func tick(busy: Bool, idle: Double? = nil, now: Date = Date(), ghosttyOpened: Date? = nil, lastPromptAt: Double? = nil) {
         let idle = idle ?? userIdleSeconds()
         let today = Self.dayString(now)
         if today != day { day = today; reminder = nil; snoozedUntil = nil; breakCounted = false; answeredAt = nil }
@@ -201,12 +237,23 @@ final class DayCoach: ObservableObject {
         lastTick = now
 
         let log = useLog ? readLog(today) : Log()
-        let active = idle < activeWithin
+        // Seconds since your last prompt, typed here or sent from the phone.
+        let sincePrompt = (lastPromptAt ?? log.lastPrompt).map { now.timeIntervalSince1970 - $0 } ?? .infinity
+
+        // Lunch: back by the button, or by itself on the first input after 10 minutes away.
+        if lunchOut > 0 && idle < 60 && now.timeIntervalSince1970 - idle >= lunchOut + lunchAutoBack {
+            backFromLunch(now: now)
+        }
+        onLunch = lunchOut > 0
+
+        let present = idle < activeWithin || sincePrompt < activeWithin
+        let active = !onLunch && (present || busy)
         if active { workSecs += dt }
-        if idle < breakAfter {
+        if onLunch || idle < breakAfter || sincePrompt < breakAfter || busy {
+            // Lunch resets the timers when you come back, so it is not counted as a break too.
             breakCounted = false
         } else if !breakCounted {
-            // Ten minutes with no keyboard or mouse: you stepped away. That is a break, once.
+            // Ten minutes with no input, no prompt and nothing running: you stepped away. A break, once.
             breakCounted = true
             if workSecs - restAt > 60 {
                 restAt = workSecs
@@ -216,17 +263,23 @@ final class DayCoach: ObservableObject {
 
         let weekday = Calendar.current.component(.weekday, from: now)
         let workday = config.workdays.contains(weekday) && !dayOff
-        if config.autoStart && workday && startedAt <= 0 && active
+        if config.autoStart && workday && startedAt <= 0 && present
             && Calendar.current.component(.hour, from: now) >= earliestStartHour {
-            // The day starts at your first input today. If the app opened late, an earlier prompt
-            // in today's log is an earlier start. After "Start again" (-1), only the input counts.
+            // The day starts at your first use today: input or a prompt, not a running agent. If
+            // the app opened late, an earlier prompt, new session or Ghostty start today is an
+            // earlier start. After "Start again" (-1), only what you do now counts.
             let earliest = config.time("\(earliestStartHour):00", on: now).timeIntervalSince1970
-            var s = max(earliest, now.timeIntervalSince1970 - idle)
-            if startedAt == 0, let p = log.firstPrompt, p >= earliest, p < s { s = p }
+            var s = max(earliest, now.timeIntervalSince1970 - min(idle, sincePrompt))
+            if startedAt == 0 {
+                for e in [log.firstPrompt, log.firstSession, ghosttyOpened?.timeIntervalSince1970] {
+                    if let e, e >= earliest, e < s { s = e }
+                }
+            }
             startedAt = s
         }
         let h = hours(on: now)
         writeDayFile(h)
+        canGoLunch = workday && !onLunch && !flag("lunchSeen") && h.start.map { now >= $0 } ?? !config.autoStart
         // Not started yet (autoStart): the day has no end, so it stays "before".
         let start = h.start ?? .distantFuture, end = h.end ?? .distantFuture, checkFrom = h.checkFrom ?? .distantFuture
         minutesLeft = h.end.map { max(0, Int($0.timeIntervalSince(now) / 60)) } ?? 0
@@ -255,6 +308,8 @@ final class DayCoach: ObservableObject {
         guard workday else { return nil }
         // An automatic day that has not started: you are not at the Mac, so nothing to remind.
         if config.autoStart && phase == "before" { return nil }
+        if onLunch { return .onLunch }
+        if case .backFromLunch? = reminder { return reminder }
         if let s = snoozedUntil, now < s { return nil }
         if phase == "done" {
             if !flag("dayDoneSeen") { return .dayDone }
@@ -276,7 +331,7 @@ final class DayCoach: ObservableObject {
 
     private func isSame(_ a: Reminder, _ b: Reminder?) -> Bool {
         switch (a, b) {
-        case (.windDown, .windDown?), (.overtime, .overtime?): return true
+        case (.windDown, .windDown?), (.overtime, .overtime?), (.backFromLunch, .backFromLunch?): return true
         default: return a == b
         }
     }
@@ -293,10 +348,38 @@ final class DayCoach: ObservableObject {
         case .windDown: setFlag("windDownSeen")
         case .dayDone: setFlag("dayDoneSeen")
         case .overtime: bump("overtimeSeen")
+        case .onLunch: backFromLunch(now: lastTick ?? Date()); return
+        case .backFromLunch: break
         }
         reminder = nil
         answeredAt = lastTick ?? Date()
         tick(busy: false, now: lastTick ?? Date())
+    }
+
+    /// "Going for lunch": work time stops until you are back.
+    func goLunch(now: Date = Date()) {
+        guard lunchOut == 0 else { return }
+        lunchOut = now.timeIntervalSince1970
+        setFlag("lunchSeen")
+        setFlag("lunchReal")
+        snoozedUntil = nil
+        reminder = .onLunch
+        onLunch = true
+        canGoLunch = false
+    }
+
+    /// Lunch ends: the real length is kept for the day's end, and rest and water start again.
+    func backFromLunch(now: Date = Date()) {
+        guard lunchOut > 0 else { return }
+        let away = max(0, now.timeIntervalSince1970 - lunchOut)
+        lunchSecs += away
+        lunchOut = 0
+        onLunch = false
+        restAt = workSecs
+        waterAt = workSecs
+        breakCounted = true   // the same time away is not also a break
+        reminder = .backFromLunch(minutes: Int(away / 60))
+        if soundOn { NSSound(named: "Tink")?.play() }
     }
 
     func later() {
@@ -306,7 +389,7 @@ final class DayCoach: ObservableObject {
 
     // MARK: - Today's log, written by stack-hook.sh
 
-    struct Log { var prompts = 0, stops = 0, agents = 0; var firstPrompt: Double?, lastPrompt: Double? }
+    struct Log { var prompts = 0, stops = 0, agents = 0; var firstPrompt: Double?, lastPrompt: Double?, firstSession: Double? }
     private var logCache: (String, Date?, Log)?
 
     private func readLog(_ day: String) -> Log {
@@ -322,6 +405,7 @@ final class DayCoach: ObservableObject {
                 log.prompts += 1
                 log.lastPrompt = o["t"] as? Double
                 if log.firstPrompt == nil { log.firstPrompt = log.lastPrompt }
+            case "session": if log.firstSession == nil { log.firstSession = o["t"] as? Double }
             case "stop": log.stops += 1
             case "agent": log.agents += 1
             default: break

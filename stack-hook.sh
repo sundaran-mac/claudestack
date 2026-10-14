@@ -20,6 +20,8 @@ now=$(date +%s)
 logday() { mkdir -p "$HOME/.claude/stack/days"; printf '{"t":%s,"e":"%s","sid":"%s"}\n' "$now" "$1" "$sid" >> "$HOME/.claude/stack/days/$(date +%F).jsonl"; }
 case "$event" in
   UserPromptSubmit) logday prompt ;;
+  # A new or resumed chat is you starting work. A compact is Claude's own, so it is left out.
+  SessionStart) [ "$source" = "compact" ] || logday session ;;
   Stop) logday stop ;;
   PreToolUse) case "$tool" in Agent|Task) logday agent ;; esac ;;
 esac

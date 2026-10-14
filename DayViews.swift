@@ -37,6 +37,12 @@ struct DayStrip: View {
                 }
                 Text(label).font(.system(size: compact ? 10.5 : 11.5, weight: .semibold)).foregroundColor(textC).lineLimit(1)
                 Spacer(minLength: 4)
+                if coach.canGoLunch && !compact {
+                    Button { withAnimation { coach.goLunch() } } label: {
+                        Image(systemName: "fork.knife").font(.system(size: 11, weight: .semibold)).foregroundColor(calmGreen)
+                    }
+                    .buttonStyle(.plain).help("Going for lunch: pause work time until you are back")
+                }
                 Gauge(icon: "drop.fill", color: water, value: coach.waterFraction, help: "Water: fills up to the next reminder")
                 Gauge(icon: "figure.walk", color: calmGreen, value: coach.restFraction, help: "Rest: fills up to the next break")
             }
@@ -113,10 +119,14 @@ struct ReminderCard: View {
             }
             if r == .dayDone { summaryGrid }
             HStack(spacing: 8) {
+                if r == .lunch {
+                    Button("Going for lunch") { withAnimation { coach.goLunch() } }
+                        .buttonStyle(CoachButton(color: c, filled: true))
+                }
                 Button(doneLabel(r)) { withAnimation { coach.done() } }
-                    .buttonStyle(CoachButton(color: c, filled: true))
-                if r != .dayDone {
-                    Button("10 min later") { withAnimation { coach.later() } }
+                    .buttonStyle(CoachButton(color: c, filled: r != .lunch))
+                if ![.dayDone, .onLunch].contains(r), !isBack(r) {
+                    Button(r == .lunch ? "Later" : "10 min later") { withAnimation { coach.later() } }
                         .buttonStyle(CoachButton(color: c, filled: false))
                 }
             }
@@ -144,11 +154,15 @@ struct ReminderCard: View {
 
     // MARK: Words
 
+    func isBack(_ r: Reminder) -> Bool { if case .backFromLunch = r { return true }; return false }
+
     func title(_ r: Reminder) -> String {
         switch r {
         case .water: return "Time for water"
         case .rest: return "Time to rest"
         case .lunch: return "Lunch time"
+        case .onLunch: return "Enjoy your lunch"
+        case .backFromLunch(let m): return "Welcome back. Lunch was \(m) min."
         case .windDown(let m): return "\(m) minutes left today"
         case .dayDone: return "Day complete. Well done."
         case .overtime(let m): return "\(m) minutes past your day"
@@ -160,6 +174,8 @@ struct ReminderCard: View {
         case .water: return "You worked \(coach.config.waterMinutes) minutes. Drink a glass of water."
         case .rest: return "Two hours without a break. Stand up, walk, and look away from the screen for 5 minutes."
         case .lunch: return "Step away until \(coach.config.lunchEnd). Claude can wait."
+        case .onLunch: return "Work time is paused, even while agents run. Your first keyboard or mouse use after 10 minutes ends lunch."
+        case .backFromLunch: return "Rest and water start again. Your day's end uses this real lunch."
         case .windDown: return "Finish what you have. New tasks now get a time check from Claude before they start."
         case .dayDone: return "Here is today. Save your work and stop for the day."
         case .overtime: return "Save your work and leave the rest for tomorrow."
@@ -170,7 +186,9 @@ struct ReminderCard: View {
         switch r {
         case .water: return "I drank water"
         case .rest: return "I took a break"
-        case .lunch: return "Back from lunch"
+        case .lunch: return "I already ate"
+        case .onLunch: return "I'm back"
+        case .backFromLunch: return "OK"
         case .windDown, .overtime: return "OK"
         case .dayDone: return "Close for today"
         }
@@ -179,7 +197,7 @@ struct ReminderCard: View {
     func color(_ r: Reminder) -> Color {
         switch r {
         case .water: return water
-        case .rest, .lunch, .dayDone: return calmGreen
+        case .rest, .lunch, .onLunch, .backFromLunch, .dayDone: return calmGreen
         case .windDown, .overtime: return calmAmber
         }
     }
@@ -196,12 +214,12 @@ struct ReminderCard: View {
                     .fill(water)
                     .mask(Image(systemName: "drop.fill").resizable().scaledToFit())
             }
-        case .rest, .lunch:
+        case .rest, .lunch, .onLunch, .backFromLunch:
             // A breathing circle: four seconds in, four seconds out.
             let b = 0.5 + 0.5 * sin(t * .pi / 4)
             ZStack {
                 Circle().fill(calmGreen.opacity(0.12 + 0.12 * b)).scaleEffect(0.7 + 0.3 * b)
-                Image(systemName: r == .lunch ? "fork.knife" : "figure.walk").font(.system(size: 17, weight: .semibold)).foregroundColor(calmGreen)
+                Image(systemName: r == .rest ? "figure.walk" : "fork.knife").font(.system(size: 17, weight: .semibold)).foregroundColor(calmGreen)
             }
         case .windDown(let m):
             ZStack {
@@ -249,6 +267,7 @@ struct CoachButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 11.5, weight: .bold))
+            .lineLimit(1).fixedSize()
             .foregroundColor(filled ? Color(hex: 0x0F1923) : color)
             .padding(.horizontal, 12).padding(.vertical, 5)
             .background(RoundedRectangle(cornerRadius: 8).fill(filled ? color : Color.clear))

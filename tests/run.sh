@@ -67,11 +67,20 @@ expect="10:32 water
 if [ "$(head -4 <<<"$sim")" = "$expect" ]; then echo "ok   coach: water, rest, water reset by the rest, and lunch at the right times"; else echo "FAIL coach morning:"; head -4 <<<"$sim"; fail=1; fi
 for want in "auto default on=true minutes=480" "old config kept start=10:00 water=45 auto=true minutes=480" \
   "auto 08:00 phase=before" "auto 17:27 windDown" "auto 17:57 dayDone" "auto start=09:12 end=17:57 check=17:27" \
-  "auto no reminders before start=true phase=done" "auto 04:30 input starts day=false" "auto restart early=07:00 now=09:30" \
+  "auto no reminders before start=true phase=done" "auto 04:30 input starts day=true" "auto restart early=07:00 now=09:30" \
   "auto end from 08:00 4h=12:00 from 14:00 8h=22:00 from 13:20 8h=21:45" "auto saturday phase=off started=false"; do
   if grep -qx "$want" <<<"$sim"; then echo "ok   coach: $want"; else echo "FAIL coach: $want missing"; fail=1; fi
 done
 for want in "pause 9 min keeps rest timer=true" "pause 10 min starts rest timer again=true" "18:00 windDown" "18:30 dayDone" "18:45 overtime" "19:00 overtime" "saturday phase=off reminders=false"; do
+  if grep -qx "$want" <<<"$sim"; then echo "ok   coach: $want"; else echo "FAIL coach: $want missing"; fail=1; fi
+done
+# Work with Claude: agent time and phone prompts are work, lunch pauses it, midnight starts the day.
+# Ticks are 5 s apart and the first adds nothing, so a full hour reads 59m.
+for want in "agent watch work=59m breaks=0" "phone prompts work=49m breaks=0" "away idle breaks=1" \
+  "claude working running=true stuck=false needs new=true needs old=false" \
+  "lunch can go=true out at 13:05=true back=50 min work during lunch=0m end=17:50 card=backFromLunch(minutes: 50)" \
+  "lunch after ok card=none can go=false rest=true" "lunch button back onLunch=false end=17:29" \
+  "midnight agent starts day=false input start=00:30" "ghostty start today=04:00 yesterday=09:00"; do
   if grep -qx "$want" <<<"$sim"; then echo "ok   coach: $want"; else echo "FAIL coach: $want missing"; fail=1; fi
 done
 # Time-check hook: silent before 6 PM, on weekends and for slash commands; speaks after 6 PM.
