@@ -85,16 +85,25 @@ Long days with Claude are easy to stretch too far. The coach watches your work t
   left", "Day complete" with today's numbers, and a gentle note every 15 minutes if you keep
   working after the day ends. Each has **Done** and **10 min later**. After you answer one, the
   next water or rest waits at least 15 minutes.
-- **Work time** counts while you use the Mac: any keyboard or mouse input in the last 5 minutes
-  (macOS reports this without any permission). Ten minutes with no input count as a break and
-  start the rest timer again. A shorter pause, like reading an answer, does not.
+- **Work time** counts while you work with Claude: any keyboard or mouse input in the last 5
+  minutes (macOS reports this without any permission), a prompt in the last 5 minutes (from the
+  phone too), or a session that is Running. Watching an agent for 40 minutes is work. "Needs you"
+  counts for its first 10 minutes; "Maybe stuck" does not count. Ten minutes with no input, no
+  prompt and nothing running count as a break and start the rest timer again. A shorter pause,
+  like reading an answer, does not.
+- **Going for lunch:** the lunch card has **Going for lunch**, **I already ate** and **Later**,
+  and the strip shows a fork-and-knife button to go early. While you are out, work time stops,
+  even if agents run. **I'm back**, or your first keyboard or mouse use after 10 minutes, ends
+  lunch: rest and water start again, and the day's end uses your real lunch length.
 - **End-of-day time check:** `day-hook.sh` (a `UserPromptSubmit` hook) adds a note to new prompts
   after the time-check hour on workdays. Claude then answers first with a `timecheck` block, which
   the reader shows as a card with a clock ring: fits, or does not fit, what to do now and what to
   leave for tomorrow. If it does not fit, Claude asks before starting.
-- **Automatic start (on by default):** the day starts at your first keyboard or mouse use after
-  5 AM (or an earlier Claude prompt in today's log, if the app opened late). It ends after your
-  **work hours** (8 by default), plus the part of lunch after your start. The time check starts
+- **Automatic start (on by default):** the day resets at midnight and starts at your first use
+  after it: keyboard or mouse, or a prompt. A running agent alone does not start it. If the app
+  opened late, an earlier prompt, new Claude session or Ghostty start today is used instead. It
+  ends after your **work hours** (8 by default), plus the part of lunch after your start (or your
+  real lunch, once you used "Going for lunch"). The time check starts
   30 minutes before that end. When the hours are done, the strip turns green with a tick and the
   "Day complete" card shows. The app writes today's hours to `days/<date>.hours.json` for the
   hook. Settings shows today's start and end, greyed out, and **Start my day again from now** for
