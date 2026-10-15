@@ -62,7 +62,7 @@ struct DayStrip: View {
 
     var helpText: String {
         let h = coach.hours()
-        guard let s = h.start, let e = h.end else { return "Your day starts at your first keyboard or mouse use after \(earliestStartHour) AM" }
+        guard let s = h.start, let e = h.end else { return "Your day starts at your first keyboard or mouse use after midnight" }
         let extra = coach.config.autoStart ? " (\(hoursText(coach.config.workMinutes)) of work, lunch not counted)" : ""
         return "Your day \(clock(s)) to \(clock(e))\(extra)"
     }
@@ -295,7 +295,7 @@ struct SettingsView: View {
                         Toggle("Find my start time automatically", isOn: $c.autoStart)
                             .font(.system(size: 12.5, weight: .semibold))
                         Text(c.autoStart
-                             ? "Your day starts at your first keyboard or mouse use after \(earliestStartHour) AM. It ends after your work hours, plus lunch."
+                             ? "Your day starts at your first keyboard or mouse use after midnight. It ends after your work hours, plus lunch."
                              : "Your day uses the start and end times below.")
                             .font(.system(size: 11)).foregroundColor(muted)
                     }

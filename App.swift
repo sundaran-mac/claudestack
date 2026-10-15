@@ -773,4 +773,13 @@ func agentWorkSim() {
     let y = fresh("local.sundaran.claudestack.sim14")
     y.tick(busy: false, idle: 0, now: at(9, 0), ghosttyOpened: at(22, 0, day: 7))
     print("ghostty start today=\(g.hours(on: at(9, 0)).start.map(clock) ?? "-") yesterday=\(y.hours(on: at(9, 0)).start.map(clock) ?? "-")")
+
+    // 2026-10-15: lid shut, a 2-second dark wake at 00:04 reset the idle clock to 1 s. The screen
+    // was off, so that is nobody. The lid opens at 09:36: the day starts then and ends at 18:21.
+    let w = fresh("local.sundaran.claudestack.sim15")
+    w.tick(busy: false, idle: inputIdle(raw: 1, screenInUse: false), now: at(0, 4, day: 15))
+    let darkStart = w.hours(on: at(0, 4, day: 15)).start != nil
+    w.tick(busy: false, idle: inputIdle(raw: 0, screenInUse: true), now: at(9, 36, day: 15))
+    let wh = w.hours(on: at(9, 36, day: 15))
+    print("dark wake starts day=\(darkStart) work=\(hm(w.summary.workSecs)) lid open start=\(wh.start.map(clock) ?? "-") end=\(wh.end.map(clock) ?? "-")")
 }

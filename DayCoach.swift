@@ -1,6 +1,6 @@
 // The day coach: work time, water and rest reminders, lunch, the end of the day, and today's numbers.
 // The day starts at a fixed time, or (the default) at your first use after midnight: keyboard or
-// mouse, a prompt, a new Claude session, or opening Ghostty. It ends after your work hours plus lunch.
+// mouse while the screen is on, a prompt, a new Claude session, or opening Ghostty. It ends after your work hours plus lunch.
 // Work time counts while you work with Claude: any keyboard or mouse input in the last 5 minutes,
 // a prompt in the last 5 minutes (from the phone too), or a session that is running. Watching an
 // agent for 40 minutes is work. Going for lunch stops it, even while agents run.
@@ -11,8 +11,24 @@ import CoreGraphics
 import Foundation
 
 /// Seconds since the last keyboard or mouse input anywhere on the Mac. Needs no permission.
+/// While nobody can use the Mac (screen off or locked) it is never "just now": a dark wake, when
+/// the lid is shut and macOS wakes for a few seconds to fetch mail or back up, resets this clock.
+/// On 2026-10-15 a dark wake at 00:04 started the day, so it "ended" at 08:03.
 func userIdleSeconds() -> Double {
-    CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    inputIdle(raw: CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!),
+              screenInUse: screenInUse())
+}
+
+/// The idle clock only means something when a person can see the screen.
+func inputIdle(raw: Double, screenInUse: Bool) -> Double { screenInUse ? raw : .infinity }
+
+/// The main display is awake and the session is on screen and unlocked. In a dark wake the
+/// display stays asleep, so this is false.
+func screenInUse() -> Bool {
+    if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return false }
+    guard let s = CGSessionCopyCurrentDictionary() as? [String: Any] else { return true }
+    if (s["CGSSessionScreenIsLocked"] as? Bool) == true { return false }
+    return (s[kCGSessionOnConsoleKey as String] as? Bool) ?? true
 }
 
 /// Claude is working for you: a session is running, or asked you something under 10 minutes
