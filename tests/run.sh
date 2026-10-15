@@ -80,7 +80,8 @@ for want in "agent watch work=59m breaks=0" "phone prompts work=49m breaks=0" "a
   "claude working running=true stuck=false needs new=true needs old=false" \
   "lunch can go=true out at 13:05=true back=50 min work during lunch=0m end=17:50 card=backFromLunch(minutes: 50)" \
   "lunch after ok card=none can go=false rest=true" "lunch button back onLunch=false end=17:29" \
-  "midnight agent starts day=false input start=00:30" "ghostty start today=04:00 yesterday=09:00"; do
+  "midnight agent starts day=false input start=00:30" "ghostty start today=04:00 yesterday=09:00" \
+  "dark wake starts day=false work=0m lid open start=09:36 end=18:21"; do
   if grep -qx "$want" <<<"$sim"; then echo "ok   coach: $want"; else echo "FAIL coach: $want missing"; fail=1; fi
 done
 # Time-check hook: silent before 6 PM, on weekends and for slash commands; speaks after 6 PM.

@@ -100,7 +100,9 @@ Long days with Claude are easy to stretch too far. The coach watches your work t
   the reader shows as a card with a clock ring: fits, or does not fit, what to do now and what to
   leave for tomorrow. If it does not fit, Claude asks before starting.
 - **Automatic start (on by default):** the day resets at midnight and starts at your first use
-  after it: keyboard or mouse, or a prompt. A running agent alone does not start it. If the app
+  after it: keyboard or mouse while the screen is on and unlocked, or a prompt. A running agent
+  alone does not start it, and nor does a dark wake (the lid is shut and macOS wakes for a few
+  seconds, which resets the Mac's idle clock). If the app
   opened late, an earlier prompt, new Claude session or Ghostty start today is used instead. It
   ends after your **work hours** (8 by default), plus the part of lunch after your start (or your
   real lunch, once you used "Going for lunch"). The time check starts
